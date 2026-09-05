@@ -1,0 +1,10 @@
+# regenerative-harvest-planning/config/aoi_central.yaml
+# Project 2 area of interest. Fixed rectangular working extent, EPSG:3067.
+# Central Finland: Aanekoski bioproduct mill procurement area
+# (Aanekoski - Saarijarvi - Laukaa).
+# 50 x 68 km, approx 3,400 km2.
+
+name: central_finland
+description: Aanekoski - Saarijarvi - Laukaa mill procurement area
+crs: EPSG:3067
+bbox_3067: [404000, 6910000, 454000, 6978000]

@@ -1,0 +1,52 @@
+# regenerative-harvest-planning/config/pipeline.yaml
+# Pipeline parameters for Project 2. Everything parameterised; no magic numbers
+# in module code. fi_forest_data/validate.py checks this against a schema in CI:
+# a missing or out-of-range parameter fails the build rather than defaulting.
+# Values below are TASK 00 decisions (docs/TASK_00_FINDINGS.md), not new.
+
+aoi: aoi_central.yaml   # resolved relative to this config file's directory
+
+module_d1_dtw_derive:
+  validation_catchment_bbox_3067: [414920, 6945300, 429010, 6964880]  # SYKE FI1-14.06.161, 148 km2
+  reference_product: dtw_2023_cmv2   # TASK 00 decision D3: newer DEM, peatland-improved cost model
+  reference_unit: cm                 # 2023 DTW is centimetres (2019 legacy vintage was mm)
+  dem_resolution_m: 2
+  culvert_burn: true
+  pit_removal: carve                 # Lindsay 2016; the reference product uses breaching - expected divergence
+  flow_algorithm: dinf               # Tarboton 1997; the reference product uses D8 - expected divergence
+  channel_thresholds_ha: [0.5, 1.0, 2.0, 4.0, 10.0]   # 2023 CMv2 set (adds 2 ha vs the 2019 set)
+
+module_d2_dtw_extend:
+  weather_term:
+    enabled: true
+    fmi_station_id: 101537            # Viitasaari Haapaniemi, daily record from 1970
+    antecedent_precip_days: [7, 14, 30]
+    snowmelt_detection: snow_depth_delta
+    interpolate_between_thresholds: true
+  soil_term:
+    enabled: true
+    source: msnfi_soil_main_type      # MS-NFI paatyyppi: peat vs mineral
+    peat_bearing_penalty: 0.5         # placeholder - calibrate against korjuukelpoisuus at D2 build time
+
+module_d3_rootrot:
+  mandatory_period: {start: "05-01", end: "11-30"}
+  mineral_soil_conifer_volume_share_min: 0.50
+  peat_soil_spruce_volume_share_min: 0.50
+  exemption_min_temp_c: -10.0
+  exemption_lookback_days: 21
+  spore_dispersal_mean_temp_c: 5.0
+  urea_watercourse_setback_m: 10
+
+module_e_plus:
+  buffer_widths_m: [10, 20, 30]
+  dtw_wet_threshold_m: 1.0            # Hilli & Mykra et al. 2022: 0.8-1.2 m band, upland-species boundary
+  retention_trees_per_ha: 30
+  retention_min_dbh_cm: 15
+  deadwood_trees_per_ha: 20           # TASK 00 decision D2 (deferred): no MS-NFI deadwood theme - resolve before building this
+  biodiversity_stumps_per_ha: 10
+  ccf_peatland: {soil: peat, dominant_species: spruce, drained: true, fertility_min: lush}
+
+module_f_connectivity:
+  node_sources: [protected_areas, habitat_s10, ymparistotuki, old_stands]
+  old_stand_age_min_years: 120
+  resistance_sensitivity_runs: 20     # sweep width for the "robust set" honesty requirement

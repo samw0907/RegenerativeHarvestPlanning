@@ -1,0 +1,37 @@
+# regenerative-harvest-planning/requirements.txt
+# Python 3.11+. One shared virtualenv at the working directory root serves both
+# portfolio repos during development. Versions left unpinned at scaffold time;
+# they get pinned once the environment is first built.
+
+# Core geospatial and analysis
+rasterio
+geopandas
+shapely
+pyproj
+numpy
+pandas
+scipy
+matplotlib
+requests
+pyyaml
+rasterstats
+python-dotenv
+
+# Terrain and hydrology (the backbone of this repo: D-infinity flow routing,
+# pit removal, DTW reimplementation)
+whitebox
+pysheds
+
+# Graph analysis (Module F: least-cost paths, connectivity measures)
+networkx
+
+# Statistics. scikit-learn is used for NearestNeighbors as a k-NN utility by
+# default if ever needed; wider use as an ML framework is a design decision to
+# raise first. Neither module here is expected to need it - D/E/F are
+# documented operational methods, deterministic rules and graph analysis.
+statsmodels
+scikit-learn
+
+# Development and CI
+flake8
+pytest
