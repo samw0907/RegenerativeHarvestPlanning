@@ -104,46 +104,106 @@ The source CRS has no top-level EPSG authority tag (a raw PROJCS matching
 ETRS-TM35FIN's parameters exactly), so `fetch_catchment` sets EPSG:3067
 explicitly rather than trusting an inferred CRS.
 
-### D1c - next: reimplement DTW
-Clip the fetched DEM to the true catchment polygon (not the bbox); carve
-remaining pits (Lindsay 2016, via WhiteboxTools); route flow with D-infinity
-(Tarboton 1997); take slope from the unmodified surface; initiate channels at
-the same 5 thresholds (converted to a cell count at 2 m: 1 ha = 2,500 cells);
-compute the slope-weighted cumulative downslope distance to the nearest channel
-cell (the DTW metric itself - not a single stock tool in WhiteboxTools or
-pysheds, built from the flow-direction and slope rasters). Compare against the
-cached Luke DTW 2023 CMv2 at each threshold: agreement statistics plus a
-written account of where the two diverge (expected: our D-infinity + carve vs
-Luke's D8 + breaching).
+### D1c - reimplement DTW: wrong tool first, root-caused, corrected (2026-09-05)
 
-**Simplification flagged, not silently made:** the first pass skips
-**culvert-burning** (lowering the DEM at road/stream crossings so flow is not
-blocked by road embankments/culvert-modelling artefacts). It needs the NLS
-topographic database (`MTK-tie` roads, `MTK-virtavesi` streams), which has no
-fetch route built yet in this repo (only sketched in `DATA_SOURCES.md`) - a
-similar live-probe to the SYKE one above would be needed first. Proceeding
-without it for the first D1 comparison; if the agreement statistics show
-localised divergence at road crossings, that is the evidence to build it and
-re-run, rather than guessing it matters up front.
+Implemented `src/d1_dtw_derive.py`: clip DEM to the true catchment polygon,
+`BreachDepressionsLeastCost` (Lindsay 2016, via WhiteboxTools - confirmed
+15,056,943 of 37 M cells were single/multi-cell pits, normal for a 2 m LiDAR
+DEM), `DInfFlowAccumulation` for channel delineation, a per-threshold streams
+raster from the cell-count equivalent of each ha threshold. One bug fixed along
+the way: `WhiteboxTools.set_working_dir` needs an **absolute** path - a
+relative one resolves against the external `whitebox_tools.exe` process's own
+cwd, silently producing no output. Added an explicit output-exists check after
+every WhiteboxTools call so this fails loudly next time.
+
+**First attempt was wrong, not just divergent, and Sam was right to push back
+on accepting it.** The first version used `DownslopeDistanceToStream(dinf=True)`
+- horizontal flow-path distance to the nearest channel cell. Result: **30-40x**
+higher than Luke's product at every threshold (median 50.8 m vs Luke's 1.55 m
+at 0.5 ha), correlation only 0.39-0.47. Investigated rather than either
+accepting it or dropping it:
+
+1. Ruled out D-infinity as the cause: re-ran the same tool in D8 mode - same
+   ~40x inflation (median 59 m). Not a D-infinity quirk.
+2. Tested the "missing slope floor" hypothesis directly, using WhiteboxTools'
+   `CostDistance` with an explicit floor (0.5-5 degrees swept) on a
+   slope-based friction surface. **Made it worse** (median 285-510 m) - this
+   ruled out "horizontal distance, just missing a floor" as the fix.
+3. Reconsidered what DTW actually represents: a modelled **water-table
+   height**, not a horizontal distance. WhiteboxTools has a purpose-built tool
+   for exactly that concept - `ElevationAboveStream` (vertical elevation drop
+   to the nearest downslope channel cell). Re-ran with that instead.
+
+**`ElevationAboveStream` agrees well, on the corrected, correctly nodata-masked
+comparison** (both a Pearson and a Spearman rank correlation - rank matters
+here because it tests "does this identify the same relatively wet/dry cells",
+which is closer to what D2 actually needs than exact metre-for-metre agreement):
+
+| threshold | n | Pearson r | Spearman r | bias (ours - Luke) | RMSE | median ours | median Luke |
+|-----------|---|-----------|------------|---------------------|------|--------------|-------------|
+| 0.5 ha | 22.0 M | 0.62 | 0.78 | +2.5 m | 6.5 m | 2.48 m | 1.55 m |
+| 1 ha | 21.9 M | 0.68 | 0.81 | +2.7 m | 7.0 m | 3.26 m | 2.18 m |
+| 2 ha | 21.8 M | 0.76 | 0.83 | +2.7 m | 7.0 m | 4.15 m | 2.99 m |
+| 4 ha | 21.8 M | 0.82 | 0.86 | +2.4 m | 6.7 m | 5.25 m | 4.17 m |
+| 10 ha | 21.6 M | 0.87 | 0.88 | +2.2 m | 6.5 m | 7.05 m | 6.14 m |
+
+Correlation rises with threshold (sparser, better-defined channel networks at
+higher thresholds agree more); the bias is small, consistent (+2.2 to +2.8 m,
+not 30-40x), and has a plausible cause (no culvert-burning, D-infinity vs D8
+channel definition, no peatland-specific cost-model-v2 adjustment - Luke's
+improvement specifically for drained peat, which this catchment likely has
+some of). This is a genuinely usable D1 comparison, not a rationalised bad one.
+
+**Simplifications in this version, flagged not hidden:**
+- **No culvert-burning** (lowering the DEM at road/stream crossings). Needs the
+  NLS topographic database (`MTK-tie` roads, `MTK-virtavesi` streams), no fetch
+  route built yet in this repo - a similar live-probe to the SYKE one above
+  would be needed first.
+- **`ElevationAboveStream` has no D-infinity/D8 option** - it uses
+  WhiteboxTools' own internal downslope-tracing rule for the within-cell trace,
+  so D-infinity governs where the channel network is (via
+  `DInfFlowAccumulation`) but not the exact path traced down to it.
+- **One DEM throughout**, not two. The plan's wording says take elevation from
+  the *unmodified* surface while routing flow on the *breached* one;
+  `ElevationAboveStream` takes a single DEM for both, so this pass used the
+  breached DEM for both. A shallow least-cost breach changes few cells.
 
 ---
 
 ## 4. Results and what they mean
 
-(filled in as D1b completes)
+- **The DTW reimplementation is a genuine, usable reproduction, not a
+  documented failure.** Elevation-above-stream (a water-table-height proxy,
+  D-infinity-delineated channel network at each of the 5 official thresholds)
+  correlates 0.62-0.87 (Pearson) / 0.78-0.88 (Spearman) with Luke's official
+  DTW 2023 CMv2 product, with a small, consistent +2.2 to +2.8 m bias and a
+  plausible explanation for it (no culvert-burning, D-infinity vs D8, no
+  peatland cost-model adjustment).
+- **Getting there required rejecting the first result, not rationalising it.**
+  A first, plausible-sounding tool choice (horizontal downslope distance to
+  channel) was 30-40x off with only weak correlation. Two follow-up hypotheses
+  (D-infinity artefact; missing slope floor) were tested and ruled out before
+  landing on the actual issue - DTW models a water-table height, not a
+  distance, and the tool needs to match that concept, not just be
+  "hydrologically flow-direction-aware".
+- **The catchment is confirmed genuinely flat** (38 % of cells below 0.1 deg
+  slope), which is exactly the terrain where a wrong cost formula diverges
+  hardest - a useful fact for interpreting D2's soil/weather terms too.
 
 ---
 
 ## 5. Caveats and open items
 
-- The validation catchment fetch used the **bounding box**, not the exact SYKE
-  polygon; the plan calls for re-fetching the precise non-rectangular catchment
-  polygon from `valumaalueet.zip` for the actual D1 clip - not yet done, needed
-  before computing agreement statistics (a bbox is fine for a raw-data fetch,
-  not for a clean comparison against a non-rectangular catchment).
 - `nls.mapsheets_for_bbox` resolves the same grid via the NLS OGC API
   (`karttalehtijako_koko_suomi`), so `fetch_dtw` still needs `NLS_API_KEY` even
   though the DTW tiles themselves come from the key-free Funet mirror.
+- The +2.2 to +2.8 m bias's exact cause (culvert-burning vs D-infinity vs peat
+  cost-model v2) is plausible but not decomposed - would need each factor
+  added back one at a time to attribute the bias, not done here.
+- `reimplement_dtw` (the WhiteboxTools pipeline) is not covered by automated
+  tests - it needs the real WhiteboxTools binary and multi-minute runs on a
+  37 M-cell raster, not something to unit test. `compare_to_reference`'s pure
+  numpy comparison logic is tested (`tests/test_d1_dtw_compare.py`).
 - DEM fetch is the slow step (119 s for 6 tiles on the catchment); the full AOI
   (3,400 km2) would need roughly 40+ tiles - budget several minutes when that
   fetch is eventually run for D2/D3's AOI-wide surfaces.
