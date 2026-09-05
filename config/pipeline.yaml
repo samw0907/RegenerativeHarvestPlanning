@@ -42,9 +42,17 @@ module_e_plus:
   dtw_wet_threshold_m: 1.0            # Hilli & Mykra et al. 2022: 0.8-1.2 m band, upland-species boundary
   retention_trees_per_ha: 30
   retention_min_dbh_cm: 15
-  deadwood_trees_per_ha: 20           # TASK 00 decision D2 (deferred): no MS-NFI deadwood theme - resolve before building this
+  deadwood_trees_per_ha: 20           # Plus target, trees/ha - reported vs an aggregate m3/ha stat only, not combined (D2 decision, TASK_00_FINDINGS.md)
+  deadwood_vmi_zone: etela_suomi      # AOI's VMI reporting zone
+  deadwood_vmi_m3_per_ha: 5.5         # Luke VMI2022 update, standing + lying dead wood, Etela-Suomi
+  deadwood_vmi_standing_share: 0.3    # Luke: >70% is lying (maapuu); remainder standing (pystypuu)
   biodiversity_stumps_per_ha: 10
   ccf_peatland: {soil: peat, dominant_species: spruce, drained: true, fertility_min: lush}
+  channel_network_resolution_m: 16    # coarser than D1's 2 m: full-AOI D-infinity at 2 m is ~850M cells,
+                                       # the wrong engineering call for an illustrative buffer comparison;
+                                       # 16 m matches MS-NFI's native grid, so channel buffers join MS-NFI
+                                       # themes without a second resampling step. D1's 2 m catchment remains
+                                       # the high-fidelity, validated demonstration.
 
 module_f_connectivity:
   node_sources: [protected_areas, habitat_s10, ymparistotuki, old_stands]

@@ -215,6 +215,43 @@ def fetch_dem_tiled(aoi, *, resolution_m: int = 2, cache_dir: str | Path = "data
     return str(out)
 
 
+def resample_dem(src_path, out_path, *, target_resolution_m: float) -> str:
+    """Downsample a DEM GeoTIFF to a coarser resolution by block averaging.
+
+    Averaging is the physically appropriate reduction for elevation (unlike
+    nearest, which would just pick one corner cell); GDAL's average resampling
+    respects the source nodata mask. Used for Module E's full-AOI channel-
+    network derivation, which runs coarser than D1's validated 2 m catchment
+    work - see docs/MODULE_E_NOTES.md section 2.2 for why.
+    """
+    import rasterio
+    from rasterio.enums import Resampling
+
+    src_path = Path(src_path)
+    out_path = Path(out_path)
+    with rasterio.open(src_path) as src:
+        scale = target_resolution_m / src.res[0]
+        if scale <= 1:
+            raise ValueError(
+                f"target_resolution_m ({target_resolution_m}) must be coarser "
+                f"than the source resolution ({src.res[0]})")
+        new_width = max(1, round(src.width / scale))
+        new_height = max(1, round(src.height / scale))
+        data = src.read(
+            out_shape=(src.count, new_height, new_width),
+            resampling=Resampling.average,
+        )
+        new_transform = src.transform * src.transform.scale(
+            src.width / new_width, src.height / new_height)
+        profile = src.profile.copy()
+        profile.update(height=new_height, width=new_width, transform=new_transform)
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(out_path, "w", **profile) as dst:
+        dst.write(data)
+    return str(out_path)
+
+
 def mapsheets_for_bbox(bbox_3067, *, session: requests.Session, cache_dir: Path,
                        layer: str = "utm5") -> list[str]:
     """Map-sheet codes intersecting the bbox, from `karttalehtijako_koko_suomi` (cached).

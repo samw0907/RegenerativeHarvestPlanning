@@ -10,6 +10,7 @@ cover the AOI, and the mosaic's bounds match.
 from dataclasses import replace
 
 import numpy as np
+import pytest
 import rasterio
 from rasterio.transform import from_origin
 
@@ -75,3 +76,33 @@ def test_aoi_replace_keeps_frozen_dataclass_semantics():
     tile = replace(aoi, name="a_tile_0_0", bbox_3067=(0.0, 0.0, 500.0, 500.0))
     assert tile.name == "a_tile_0_0"
     assert aoi.bbox_3067 == (0.0, 0.0, 1000.0, 1000.0)
+
+
+def test_resample_dem_block_averages_to_the_target_resolution(tmp_path):
+    # a 20x20, 2 m raster with a simple gradient, so each 8x8 output block's
+    # average is easy to check by hand
+    res = 2.0
+    arr = np.arange(400, dtype="float32").reshape(20, 20)
+    src = tmp_path / "src.tif"
+    with rasterio.open(src, "w", driver="GTiff", crs="EPSG:3067",
+                       transform=from_origin(0, 40, res, res),
+                       width=20, height=20, count=1, dtype="float32") as dst:
+        dst.write(arr, 1)
+
+    out = nls.resample_dem(src, tmp_path / "out.tif", target_resolution_m=8.0)
+
+    with rasterio.open(out) as ds:
+        assert ds.width == 5 and ds.height == 5
+        assert ds.res == (8.0, 8.0)
+        out_arr = ds.read(1)
+        # top-left output cell averages the source's top-left 4x4 block
+        assert out_arr[0, 0] == pytest.approx(arr[:4, :4].mean(), rel=1e-5)
+        b = ds.bounds
+        assert b.left == pytest.approx(0.0) and b.top == pytest.approx(40.0)
+
+
+def test_resample_dem_rejects_a_finer_target_resolution(tmp_path):
+    src = tmp_path / "src.tif"
+    _write_tile(src, (0.0, 0.0, 200.0, 200.0), value=1.0, res=10)
+    with pytest.raises(ValueError):
+        nls.resample_dem(src, tmp_path / "out.tif", target_resolution_m=5.0)

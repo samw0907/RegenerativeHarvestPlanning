@@ -150,9 +150,14 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
         _num(problems, e, "retention_trees_per_ha", 0, None, "module_e_plus")
         _num(problems, e, "retention_min_dbh_cm", 0, None, "module_e_plus")
         _num(problems, e, "deadwood_trees_per_ha", 0, None, "module_e_plus")
+        if not isinstance(e.get("deadwood_vmi_zone"), str) or not e.get("deadwood_vmi_zone"):
+            problems.append("module_e_plus.deadwood_vmi_zone: expected a non-empty string")
+        _num(problems, e, "deadwood_vmi_m3_per_ha", 0, None, "module_e_plus")
+        _num(problems, e, "deadwood_vmi_standing_share", 0, 1, "module_e_plus")
         _num(problems, e, "biodiversity_stumps_per_ha", 0, None, "module_e_plus")
         if not isinstance(e.get("ccf_peatland"), dict):
             problems.append("module_e_plus.ccf_peatland: expected a block")
+        _num(problems, e, "channel_network_resolution_m", 0, None, "module_e_plus")
 
     # --- module F: connectivity ---
     f = cfg.get("module_f_connectivity")

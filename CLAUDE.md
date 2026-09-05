@@ -75,10 +75,12 @@ is fixed separately, config/pipeline.yaml.
 - `docs/REPO_SCAFFOLD.md` — module contracts, config schema, acceptance criteria
 - `docs/TASK_00_DISCOVERY.md` — the discovery task that verifies DATA_SOURCES.md
 - `docs/TASK_00_FINDINGS.md` — discovery findings, deviations, decisions.
-  **Decision D2 (Module E deadwood deficit) is still open** — resolve before
-  Module E, not before Module D. **Decision D4** (small opens: surface-water-
-  flow route, ympäristötuki field, CLC2024 release, a 32766-pixel spot-check) —
-  close at kickoff.
+  **Decision D2 (Module E deadwood deficit) resolved 2026-09-05**: aggregate
+  regional VMI statistic only, no per-stand deficit map (no per-stand or
+  per-pixel deadwood source exists anywhere in the open data — confirmed live,
+  not just in theory). **Decision D4** (small opens: surface-water-flow route,
+  ympäristötuki field, CLC2024 release, a 32766-pixel spot-check) — close at
+  kickoff.
 - `docs/MODULE_D_NOTES.md`, `MODULE_E_NOTES.md`, `MODULE_F_NOTES.md` — running
   rationale + results per module, source material for the README. Create at
   each module's start, keep current as it is built (not yet created).
@@ -101,9 +103,13 @@ container has only one repo's code) and give a reproducible run; CI runs flake8,
 config validation and pytest per-repo, also unaffected.
 
 ## Status
-**Scaffolded (2026-08-30), not yet started.** Structure, config (with all TASK 00
-values already filled in — nothing here needs re-deciding), and stub modules are
-in place; `config/pipeline.yaml` validates against `fi_forest_data/validate.py`.
-Next: Module D1 (reimplement DTW and benchmark it), after building the two
-blocking pieces its scaffold docstring names (`nls.fetch_dem` tiling wrapper,
-`luke.fetch_dtw` implementation). Then D2, D3, E, F.
+**Module D complete (2026-09-05).** D1 (DTW reimplementation, benchmarked
+against Luke's official product after rejecting and root-causing a first,
+30-40x-wrong tool choice), D2 (weather/soil terms extending DTW into a dated
+surface), D3 (root-rot rule engine, validated against real stand data) and the
+D-validation step (declared harvest timing vs predicted workability — an
+honest negative/inconclusive result, traced to `DECLARATIONARRIVALDATE` being
+an administrative timestamp rather than a felling date, not a model failure)
+are all built, tested and written up in `docs/MODULE_D_NOTES.md`. Decision D2
+(Module E deadwood deficit) is resolved — see `docs/TASK_00_FINDINGS.md`.
+Next: Module E (Metsä Group Plus site planning).

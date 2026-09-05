@@ -270,7 +270,7 @@ data.
 | DERIVE ONLY | Small-stream network and buffers | Our DTW channel network (module D) |
 | DERIVE AND BENCHMARK | Erosion risk | RUSLE from DEM + FMI rainfall + soil + land cover; benchmark vs Metsäkeskus RUSLE |
 | FETCH | Forest Act §10 valuable habitats | Metsäkeskus WFS `v2/habitat` |
-| FETCH | Site fertility, drainage, spruce share | MS-NFI 2023, Metsäkeskus stands. **No standing-deadwood theme in MS-NFI 2023** — deadwood deficit component is Decision D2 (deferred). |
+| FETCH | Site fertility, drainage, spruce share | MS-NFI 2023, Metsäkeskus stands. **No standing-deadwood theme in MS-NFI 2023** — deadwood component resolved as an aggregate regional statistic, Decision D2 (see `docs/TASK_00_FINDINGS.md`). |
 | FETCH | Mapped hydrography (for comparison) | NLS topographic database |
 
 ### Calculations
@@ -292,14 +292,19 @@ Quantify against the +30% continuous-cover-share target.
 
 **Retention and deadwood deficit.** Plus requires 30 retention trees/ha over 15 cm
 dbh, at least 20 dead trees/ha, and 10 high-biodiversity stumps/ha against a 4/ha
-baseline. Map the gap between current state and target per stand and in aggregate.
-**TASK 00 correction:** standing deadwood volume is **not** an MS-NFI 2023 theme
-(the 45 themes are stand/volume + living-tree biomass compartments only). The
-deadwood-deficit component has no per-stand m³/ha source. Decision D2 in
-`docs/TASK_00_FINDINGS.md` — deferred until the pipeline is further along; candidate
-directions are the Metsäkeskus habitat `deadwoodpotential` field (qualitative),
-Luke VMI field-plot deadwood statistics at region level, or dropping the component.
-Do not substitute a proxy silently.
+baseline. Retention trees and stumps are reported as flat target constants per
+stand (Metsäkeskus stand data gives stem count/basal area to check retention-tree
+counts against, at least in principle). **Deadwood is aggregate-only, not
+per-stand — Decision D2, resolved 2026-09-05 (`docs/TASK_00_FINDINGS.md`).**
+Standing deadwood volume is not an MS-NFI 2023 theme (confirmed, TASK 00), and
+the candidate Metsäkeskus habitat `deadwoodpotential` field was checked live and
+is a dead end: null on every habitat polygon in the D1 catchment, and habitat
+polygons cover under 0.1% of the catchment even where populated. No per-stand or
+per-pixel deadwood source exists in the open data. Report one aggregate figure
+instead: a published Luke VMI regional dead-wood-volume statistic (Etelä-Suomi,
+the AOI's VMI zone) applied to the AOI's total forest area, stated alongside the
+Plus stems/ha target rather than combined into one deficit number — the two are
+different units and no sourced constant exists to convert between them.
 
 **Valuable habitat proximity.** §10 habitat polygons adjacent to harvestable
 stands, flagged with required setbacks.

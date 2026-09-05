@@ -83,12 +83,28 @@ MS-NFI 2021).
 Project 2 Module D uses **Luke DTW 2023 CMv2**, thresholds `[0.5, 1, 2, 4, 10]` ha,
 values in cm. Recorded in `REPO_SCAFFOLD.md` P2 config.
 
-### D2 — Project 2 Module E deadwood deficit — DEFERRED (before Module E)
-MS-NFI 2023 has no standing-deadwood theme. **Deferred** — Sam's call is to revisit
-once more of the pipeline is built and the picture is fuller. Candidate directions
-(none equal to stand-level m³/ha): drop the component; use the Metsäkeskus habitat
-`deadwoodpotential` (qualitative); Luke VMI field-plot deadwood stats at region
-level; model from mortality / biomass.
+### D2 — Project 2 Module E deadwood deficit — RESOLVED (2026-09-05)
+MS-NFI 2023 has no standing-deadwood theme (confirmed, TASK 00). The candidate
+`deadwoodpotential` qualitative field on the Metsakeskus `v2/habitat` layer was
+checked live against the D1 catchment and is a dead end empirically, not just in
+theory: **null on all 167 habitat polygons fetched**, and habitat polygons cover
+only 76.6 ha of the 148 km2 catchment (well under 0.1%) even where populated -
+it could never stand in for a general per-stand measure across production
+forest. No per-stand or per-pixel deadwood source exists anywhere in the open
+data checked.
+
+**Decision (Sam, 2026-09-05): aggregate regional statistic only, no per-stand
+deficit map.** Drop the per-stand deadwood-deficit calculation entirely. Cite a
+published Luke VMI regional dead-wood-volume figure (most recent: VMI2022
+update, Etelä-Suomi 5.5 m³/ha total dead wood, >70% lying/maapuu and the rest
+standing/pystypuu per Luke's own reporting - the AOI sits within the Etelä-Suomi
+VMI zone), multiply by the AOI's total forest area for a supply-area-scale
+figure, and report it alongside the Plus stems/ha target rather than combining
+them into one number - the two are different units (volume vs stem count) and
+converting one to the other needs an average-snag-volume assumption that has no
+sourced regional constant, so keep them separate rather than manufacture a
+combined deficit percentage. Retention-tree and stump targets remain flat legal
+constants from the Plus programme, not per-stand gap-to-target maps.
 
 ### D4 — small OPEN items (Project 2 prep, low risk)
 Pintavesien virtausmalli download route; ympäristötuki field/value in the Kemera
