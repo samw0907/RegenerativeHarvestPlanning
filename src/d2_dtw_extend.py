@@ -21,13 +21,24 @@ than its raw DTW value by `peat_bearing_penalty` (config), i.e. it behaves as
 though its effective threshold were smaller (wetter) than the topography alone
 implies.
 
+**Workability.** `frozen_ground_days` classes a day as frozen ground from a
+simple, transparent temperature-run proxy (frozen soil bearing capacity is not
+itself an FMI-measured quantity). `is_workable` combines the soil-adjusted DTW
+with frozen-ground status: dry-enough DTW OR frozen ground makes a site
+workable - frozen ground overrides a wet DTW reading, which is exactly why
+winter logging on wet/peat ground is standard Nordic practice. The wet/dry
+cutoff (default 1.0 m) is the value the plan's Module E config carries
+(`dtw_wet_threshold_m`, from Hilli & Mykra et al. 2022's 0.8-1.2 m upland/wet
+species boundary) - reused here rather than duplicated, since it is the same
+physical cutoff.
+
 Data tiers: FMI daily observations FETCH; MS-NFI soil main type FETCH; the
 combined surface DERIVE ONLY (no official date-specific product exists).
 
-Validation (not yet built): does declared harvest activity on poor-bearing-
-capacity stands actually concentrate in the predicted frozen/dry windows? A
-declaration is a permit, not a felling record - state that plainly, as Module B
-had to learn in Project 1.
+Validation: see `src/d_validation.py` - does declared harvest activity on
+poor-bearing-capacity stands actually concentrate in the predicted frozen/dry
+windows? A declaration is a permit, not a felling record - state that plainly,
+as Module B had to learn in Project 1.
 """
 
 from __future__ import annotations
@@ -122,3 +133,36 @@ def soil_adjusted_dtw(dtw_m: np.ndarray, is_peat: np.ndarray, *,
     raw value, i.e. it looks twice as close to "wet" as the topography implies)."""
     factor = np.where(is_peat, 1.0 - peat_bearing_penalty, 1.0)
     return dtw_m * factor
+
+
+def frozen_ground_days(daily_weather: pd.DataFrame, *, frost_temp_c: float = -2.0,
+                       min_run_days: int = 3) -> pd.Series:
+    """Days classed as frozen ground: part of a run of >= min_run_days
+    consecutive days with tmin <= frost_temp_c.
+
+    A simple, transparent proxy (frozen soil bearing capacity is not itself an
+    FMI-measured quantity) - winter logging on wet/peat ground is standard
+    Nordic practice specifically because frost overrides the DTW-based
+    trafficability limit, which is what `is_workable` uses this for.
+    """
+    cold = (daily_weather["tmin"] <= frost_temp_c).to_numpy()
+    frozen = np.zeros(len(cold), dtype=bool)
+    run_start = None
+    for i, v in enumerate(cold):
+        if v and run_start is None:
+            run_start = i
+        elif not v and run_start is not None:
+            if i - run_start >= min_run_days:
+                frozen[run_start:i] = True
+            run_start = None
+    if run_start is not None and len(cold) - run_start >= min_run_days:
+        frozen[run_start:] = True
+    return pd.Series(frozen, index=daily_weather.index, name="frozen_ground")
+
+
+def is_workable(dtw_m: np.ndarray, is_frozen, *, wet_threshold_m: float = 1.0) -> np.ndarray:
+    """A site is workable if it is dry enough (effective DTW above
+    wet_threshold_m - the 0.8-1.2 m band Hilli & Mykra et al. 2022 found
+    characterises the upland/wet species boundary, config's default 1.0 m) OR
+    the ground is frozen, which overrides a wet DTW reading entirely."""
+    return (np.asarray(dtw_m, dtype="float64") > wet_threshold_m) | np.asarray(is_frozen, dtype=bool)

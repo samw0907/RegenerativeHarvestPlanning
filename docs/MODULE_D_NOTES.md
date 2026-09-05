@@ -266,12 +266,89 @@ climate-consistent finding, and the flip side of the plan's own flagged talking
 point (a shortening *frozen* harvest window) - the same warming trend that
 raises root-rot risk duration also compresses the frozen season Module D's
 own trafficability logic depends on.
+- **The declared-vs-random concordance check is a genuine negative result,
+  reported without softening.** Declared harvest dates show no concordance
+  advantage over random dates against the D1-D3 workability model (lift 0.976
+  overall, 0.881 - worse, not better - on peat stands specifically), and the
+  root cause is traceable to the ground-truth field: `DECLARATIONARRIVALDATE`
+  is an administrative filing/record timestamp (confirmed inconsistent against
+  the same record's `STANDARRIVALDATE` by years, in one case 15), not a felling
+  date. This does not validate or invalidate the D1-D3 model itself - it means
+  this particular check cannot answer the question it was designed to answer
+  with the data available, and must be reported that way rather than as either
+  a pass or a fail of the underlying model.
 
 Urea watercourse setback (`urea_setback_violation`) is implemented and unit
 tested against synthetic geometry; not yet run against D1's actual derived
 channel network for the catchment (that channel network exists as the D-infinity
 flow-accumulation raster from D1, not yet vectorised into a line network usable
 for a distance query - a small remaining step).
+
+### D validation - declared harvest timing vs predicted workability (done, 2026-09-05, negative result - see below)
+
+`src/d_validation.py`: for each of the D1 catchment's 8,314 forest-use
+declarations, sample all 5 Luke DTW threshold rasters at the declaration's
+centroid, blend them at D2's per-date threshold (real FMI weather on the
+declaration's own arrival date), apply the D2 soil term from the declaration's
+own `SOILTYPE`, and classify workable/not with the D2 frozen-ground override.
+Compare the workable rate on real declared dates against a negative control -
+the same 8,071 usable locations (243 fall outside the DTW raster extent) given
+a random date instead - the same design Module B used in Project 1.
+
+**A real bug was caught and fixed first.** `DECLARATIONARRIVALDATE` strings
+carry a mixed +02:00/+03:00 (EET/EEST) local offset with midnight wall-clock
+time. Parsing with `utc=True` (pandas requires it for mixed offsets) converts
+to UTC first, shifting the calendar date back a day, which then silently failed
+to match `daily_weather`'s midnight-normalised index on `.reindex()` and
+produced 100 % NaN downstream with no error. Fixed by taking the date substring
+directly (`.astype(str).str.slice(0, 10)`) rather than doing timezone
+arithmetic at all, since the wall-clock date is already unambiguous in the
+string.
+
+**The result is a null-to-slightly-negative one, and it is reported as such.**
+
+| population | n | workable rate, declared | workable rate, random control | lift | frozen share, declared | frozen share, control |
+|---|---|---|---|---|---|---|
+| all declarations | 8,071 | 0.825 | 0.846 | **0.976** | 0.255 | 0.347 |
+| mineral soil only | 7,340 | 0.865 | 0.885 | 0.977 | 0.247 | 0.347 |
+| peat only (poor bearing capacity) | 735 | 0.430 | 0.488 | **0.881** | 0.325 | 0.382 |
+
+Declared dates are not more workable than random dates by this model - if
+anything slightly less so - and the gap is *widest*, not narrowest, on peat
+stands, which is exactly backwards from what a real trafficability-driven
+concordance would predict (peat is where timing should matter most). Declared
+dates are also *less* often frozen than random dates (25-33 % vs 35-38 %),
+which is the opposite of the "Finns log wet ground in winter" prior.
+
+**Root cause: `DECLARATIONARRIVALDATE` is not a felling date.** The same
+declaration record carries `STANDARRIVALDATE` and `REGENERATIONARRIVALDATE` as
+separate timestamps, and spot-checking rows shows gaps of years between
+`DECLARATIONARRIVALDATE` and `STANDARRIVALDATE` for the same record (e.g. one
+row: declaration 1997-03-17, stand record 2012-08-07 - a 15-year gap). These
+are administrative record timestamps in the Metsakeskus data model, not a
+chronology of one physical felling event. Monthly aggregation supports the same
+conclusion from a different angle: the *workability model itself* behaves
+physically and consistently (workable rate 0.95-0.97 in Jan/Feb, driven by the
+frozen-ground override; 0.72-0.75 in Jul-Oct, when spring's post-snowmelt dry
+spell has given way to summer/autumn rain - a plausible, internally consistent
+seasonal pattern), but declarations are filed roughly in proportion to the
+calendar year rather than concentrated in the model's workable months, which is
+what produces a lift near 1.0 regardless of whether the underlying physical
+relationship is real.
+
+**This is treated as an honest negative/inconclusive finding, not softened.**
+Per the standing rule this session set with D1 (reject a result rather than
+document-and-move-on if it reads as flat-out wrong) - the distinction here is
+that D1's error was a bug in *our own pipeline* with a fixable root cause,
+where this one is a genuine limitation of the *ground-truth data field*
+available: no Metsakeskus declaration field records when felling actually
+happened, only when records were filed/updated. That is not fixable by
+changing the model, and rerunning at full AOI scale would not change the
+conclusion. D1/D2/D3 stand on their own validation (DTW benchmark correlation,
+real-date weather checks, real-stand rule-engine agreement); this check
+specifically cannot confirm or refute whether the D1-D3 workability model
+tracks real felling timing, and the README and any figure using this result
+must say so plainly rather than reporting the lift number without the caveat.
 
 ---
 
@@ -336,7 +413,9 @@ for a distance query - a small remaining step).
   reasonable and internally consistent (median threshold lands on Luke's own
   "2 ha = average"), but not validated against an independent wetness
   measurement. The plan's later validation step (declared harvest timing vs
-  predicted workable windows) is the real test of whether it is good enough.
+  predicted workable windows) was run against real data but turned out to be
+  unable to confirm or refute this term specifically - see the D validation
+  section above and the caveat below.
 - D2 has not yet been run against Luke's official DTW surfaces (only our own
   reimplementation, for the demo); using the official product is what the
   three-tier rule calls for once D1's comparison is done, which it now is.
@@ -355,3 +434,12 @@ for a distance query - a small remaining step).
   growing season" onto "root-rot spore dispersal season" - both keyed on the
   same +5 C threshold in the Finnish literature - is a reasonable inference,
   not a cited one-to-one equivalence.
+- **The D validation concordance check cannot be treated as evidence about the
+  D1-D3 model either way.** No Metsakeskus declaration field records actual
+  felling completion; `DECLARATIONARRIVALDATE` is an administrative timestamp
+  (demonstrably inconsistent with the same record's `STANDARRIVALDATE` by up
+  to 15 years in a spot check). Any future figure, README claim or downstream
+  module citing the lift numbers must carry this caveat plainly rather than
+  reporting the lift as if it measured real timing behaviour - the same
+  discipline as the pre-existing "a declaration is a permit, not a felling
+  record" caveat, taken one step further now that the data has confirmed it.
