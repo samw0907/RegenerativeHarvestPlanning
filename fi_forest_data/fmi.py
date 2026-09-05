@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import xml.etree.ElementTree as ET
+from pathlib import Path
 
 import pandas as pd
 import requests
@@ -50,18 +51,18 @@ def _get(params: dict, *, session=None) -> ET.Element:
 
 
 def stations_near(aoi, max_distance_km: float = 40.0, *, session=None) -> pd.DataFrame:
-    """FMI weather stations within max_distance_km of the AOI (WGS84 bbox query)."""
-    from pyproj import Transformer
+    """FMI weather stations within max_distance_km of the AOI.
 
-    minx, miny, maxx, maxy = aoi.bbox_3067
-    pad = max_distance_km * 1000
-    t = Transformer.from_crs("EPSG:3067", "EPSG:4326", always_xy=True)
-    lon0, lat0 = t.transform(minx - pad, miny - pad)
-    lon1, lat1 = t.transform(maxx + pad, maxy + pad)
+    The `fmi::ef::stations` WFS bbox parameter does not actually constrain the
+    result (confirmed empirically - it returns the whole national network
+    regardless), so this filters client-side by great-circle distance from
+    each station to the nearest point on the AOI bbox.
+    """
+    from pyproj import Geod
+
     root = _get({
         "service": "WFS", "version": "2.0.0", "request": "getFeature",
         "storedquery_id": _STATION_QUERY,
-        "bbox": f"{lat0},{lon0},{lat1},{lon1}",
     }, session=session)
 
     rows = []
@@ -78,7 +79,18 @@ def stations_near(aoi, max_distance_km: float = 40.0, *, session=None) -> pd.Dat
         rows.append({"fmisid": fmisid,
                      "name": name_el.text if name_el is not None else "",
                      "lat": lat, "lon": lon})
-    return pd.DataFrame(rows).drop_duplicates("fmisid").reset_index(drop=True)
+    stations = pd.DataFrame(rows).drop_duplicates("fmisid").reset_index(drop=True)
+    if stations.empty:
+        return stations
+
+    lon0, lat0, lon1, lat1 = aoi.bbox_wgs84()
+    clamp_lon = stations["lon"].clip(lon0, lon1)
+    clamp_lat = stations["lat"].clip(lat0, lat1)
+    geod = Geod(ellps="WGS84")
+    _, _, dist_m = geod.inv(stations["lon"], stations["lat"], clamp_lon, clamp_lat)
+    stations["distance_km"] = dist_m / 1000.0
+    return (stations[stations["distance_km"] <= max_distance_km]
+            .sort_values("distance_km").reset_index(drop=True))
 
 
 def _fetch_year(fmisid, start, end, variables, *, session) -> pd.DataFrame:
@@ -100,8 +112,21 @@ def _fetch_year(fmisid, start, end, variables, *, session) -> pd.DataFrame:
 
 
 def fetch_daily(fmisid, start: str, end: str,
-                variables=_DEFAULT_VARS, *, session=None) -> pd.DataFrame:
-    """Daily observations for one station, start/end as YYYY-MM-DD, paged by year."""
+                variables=_DEFAULT_VARS, *, session=None,
+                cache_dir: str | Path | None = "data/raw", force: bool = False) -> pd.DataFrame:
+    """Daily observations for one station, start/end as YYYY-MM-DD, paged by year.
+
+    Cached as a CSV keyed on station/dates/variables so a multi-decade fetch
+    (e.g. for D2's climatology or the frozen-season-length trend) is not
+    re-requested every run. Pass cache_dir=None to skip caching.
+    """
+    cache_path = None
+    if cache_dir is not None:
+        var_key = "-".join(variables)
+        cache_path = Path(cache_dir) / "fmi" / f"daily_{fmisid}_{start}_{end}_{var_key}.csv"
+        if cache_path.exists() and not force:
+            return pd.read_csv(cache_path, index_col="date", parse_dates=["date"])
+
     s = _dt.date.fromisoformat(start)
     e = _dt.date.fromisoformat(end)
     frames = []
@@ -112,4 +137,9 @@ def fetch_daily(fmisid, start: str, end: str,
     out = pd.concat(frames) if frames else pd.DataFrame(columns=list(variables))
     out.index = pd.to_datetime(out.index)
     out.index.name = "date"
-    return out.sort_index()
+    out = out.sort_index()
+
+    if cache_path is not None:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        out.to_csv(cache_path)
+    return out

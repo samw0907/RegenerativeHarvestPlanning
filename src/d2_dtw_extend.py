@@ -1,30 +1,124 @@
 # regenerative-harvest-planning/src/d2_dtw_extend.py
 """Module D2 - the DTW extension: adding soil and weather.
 
-Weather term: select the wetness-condition threshold surface (of the five D1
-channel-initiation thresholds) per date from FMI precipitation, snowmelt and
-antecedent conditions (fmisid 101537, Viitasaari Haapaniemi, daily since 1970),
-interpolating between threshold surfaces rather than switching abruptly - turns
-five static maps into a dated time series.
+**Weather term.** The five official DTW thresholds are themselves wetness-
+condition proxies (Luke's own product description): 0.5 ha very wet
+(snowmelt, prolonged rain) through 10 ha drier than average. Rather than a
+user picking one by judgement, this derives a continuous per-date wetness
+signal from FMI daily data - antecedent precipitation (rolling sums over
+several windows) plus an active-snowmelt signal (day-over-day snow-depth
+loss) - ranks it against the station's own long-run distribution (so the
+mapping is calibrated from real climatology, not an arbitrary cutoff), and
+log-interpolates between the two threshold rasters that bracket the resulting
+continuous "effective threshold". This is a genuine design choice (the plan
+specifies the goal - "select the appropriate threshold surface per date" -
+not an exact formula), recorded here so the reasoning is traceable.
 
-Soil term: modulate the wetness-to-trafficability translation by peat vs
-mineral main type (MS-NFI `paatyyppi`), since peat holds water and has low
-bearing capacity even at DTW values that read dry on mineral soil.
+**Soil term.** Peat holds water and has low bearing capacity even where DTW
+reads dry, because DTW is derived purely from topography. Modulate the
+DTW-implied wetness by MS-NFI soil main type: a peat cell is read as wetter
+than its raw DTW value by `peat_bearing_penalty` (config), i.e. it behaves as
+though its effective threshold were smaller (wetter) than the topography alone
+implies.
 
 Data tiers: FMI daily observations FETCH; MS-NFI soil main type FETCH; the
 combined surface DERIVE ONLY (no official date-specific product exists).
 
-Validation: does declared harvest activity on poor-bearing-capacity stands
-actually concentrate in the predicted frozen/dry windows (forest use
-declarations, reused from Project 1's data access pattern)? Apply the Project 1
-lesson: a declaration is a permit, not a felling record, and any per-felling-
-type or per-year subset needs a stated minimum n before quoting a distribution
-(see docs/PROJECT_2_REGENERATIVE_HARVEST_PLANNING.md, "Lessons carried from
-Project 1").
-
-Blocking dependency: `fi_forest_data.fmi.stations_near` returns the whole
-network (needs a client-side distance filter) - low priority since the station
-to use is already pinned; fix only if a second station is needed.
-
-No implementation yet - scaffold only.
+Validation (not yet built): does declared harvest activity on poor-bearing-
+capacity stands actually concentrate in the predicted frozen/dry windows? A
+declaration is a permit, not a felling record - state that plainly, as Module B
+had to learn in Project 1.
 """
+
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+
+THRESHOLDS_HA = (0.5, 1.0, 2.0, 4.0, 10.0)  # wettest -> driest, Luke's official set
+_RRDAY_DRY_SENTINEL = -1.0   # FMI convention: -1 means "no precipitation"
+_SNOW_ABSENT_SENTINEL = -1.0  # FMI convention: -1 means "no snow on the ground"
+
+
+def antecedent_precipitation(daily: pd.DataFrame, windows_days=(7, 14, 30)) -> pd.DataFrame:
+    """Rolling precipitation sum (mm) over each window, per day.
+
+    `rrday` uses -1 as a "dry day" sentinel (not a real negative value); that
+    is clipped to 0 before summing.
+    """
+    precip = daily["rrday"].clip(lower=0)
+    return pd.DataFrame({f"api_{w}d": precip.rolling(w, min_periods=1).sum()
+                         for w in windows_days}, index=daily.index)
+
+
+def snowmelt_signal(daily: pd.DataFrame) -> pd.Series:
+    """Day-over-day decrease in snow depth (cm), i.e. active meltwater input.
+
+    0 where snow is absent (-1 sentinel) or depth is flat/increasing.
+    """
+    snow = daily["snow"].clip(lower=0)
+    melt = (-snow.diff()).clip(lower=0)
+    return melt.fillna(0.0).rename("snowmelt_cm")
+
+
+def wetness_percentile(daily: pd.DataFrame, *, windows_days=(7, 14, 30),
+                       window_weights=(3.0, 2.0, 1.0), snowmelt_weight: float = 2.0) -> pd.Series:
+    """A per-day wetness signal, ranked against the station's own full-record
+    distribution so the scale is calibrated from real climatology (1.0 =
+    wettest day on record, 0.0 = driest).
+
+    The combination (shorter antecedent-precipitation windows weighted more,
+    since they reflect "right now" conditions more than a 30-day total; a
+    snowmelt day of 1 cm melt treated as comparable to snowmelt_weight mm of
+    rain) is a design choice, not a published formula - the plan leaves the
+    exact selection rule open. Documented in the module docstring.
+    """
+    api = antecedent_precipitation(daily, windows_days)
+    weights = np.asarray(window_weights[: api.shape[1]], dtype="float64")
+    api_signal = (api.to_numpy() * weights).sum(axis=1) / weights.sum()
+    melt = snowmelt_signal(daily).to_numpy()
+    raw = api_signal + snowmelt_weight * melt
+    return pd.Series(raw, index=daily.index, name="raw_wetness").rank(pct=True)
+
+
+def select_threshold_ha(percentile: float | np.ndarray, thresholds_ha=THRESHOLDS_HA):
+    """Map a wetness percentile (1 = wettest) to a continuous threshold value,
+    log-interpolated across the official thresholds (0.5 ha at percentile 1,
+    10 ha at percentile 0)."""
+    log_thr = np.log(np.asarray(thresholds_ha, dtype="float64"))
+    x_known = np.linspace(1.0, 0.0, len(thresholds_ha))  # 1=wettest -> first threshold
+    return np.exp(np.interp(percentile, x_known[::-1], log_thr[::-1]))
+
+
+def interpolate_dtw_surface(threshold_ha: float, surfaces: dict[float, np.ndarray]) -> np.ndarray:
+    """Pixel-wise interpolation between the two threshold rasters bracketing
+    `threshold_ha`. `surfaces` maps each of THRESHOLDS_HA to its (already-
+    loaded) array; all must share the same shape.
+
+    The blend *position* is log-weighted (the 5 official thresholds are
+    themselves roughly log-spaced), but the raster *values* are blended
+    linearly, not their logs - DTW = 0 (a channel cell) is common and valid,
+    and log(0) is undefined, so a true log-of-values interpolation would break
+    on exactly the cells nearest water."""
+    known = sorted(surfaces)
+    if threshold_ha <= known[0]:
+        return surfaces[known[0]]
+    if threshold_ha >= known[-1]:
+        return surfaces[known[-1]]
+    hi = next(k for k in known if k >= threshold_ha)
+    lo = max(k for k in known if k <= threshold_ha)
+    if hi == lo:
+        return surfaces[lo]
+    t = (np.log(threshold_ha) - np.log(lo)) / (np.log(hi) - np.log(lo))
+    return surfaces[lo] * (1 - t) + surfaces[hi] * t
+
+
+def soil_adjusted_dtw(dtw_m: np.ndarray, is_peat: np.ndarray, *,
+                      peat_bearing_penalty: float = 0.5) -> np.ndarray:
+    """Scale down the effective DTW on peat cells so they read wetter than
+    their raw topographic value - peat holds water and has low bearing
+    capacity that DTW (elevation/slope only) cannot see. `peat_bearing_penalty`
+    is the fractional reduction (0.5 = a peat cell's effective DTW is half its
+    raw value, i.e. it looks twice as close to "wet" as the topography implies)."""
+    factor = np.where(is_peat, 1.0 - peat_bearing_penalty, 1.0)
+    return dtw_m * factor

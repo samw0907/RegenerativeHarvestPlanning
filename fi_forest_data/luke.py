@@ -56,6 +56,7 @@ THEMES = {
     "land_class": "maaluokka",        # 1 forest land, 2 scrub, ...
     "site_fertility": "kasvupaikka",  # site fertility class 1 (rich) .. 8 (poor)
     "canopy_cover": "latvuspeitto",   # %
+    "soil_main_type": "paatyyppi",    # 1 kangas (mineral), 2-4 peatland (korpi/rame/letto) - D2 soil term
 }
 
 MSNFI_NODATA = (32766, 32767)
