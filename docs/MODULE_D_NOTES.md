@@ -87,14 +87,44 @@ See 2.1-2.2 above. Cached: DEM mosaic for the validation catchment
 (`data/raw/nls/dem2m_mosaic_fi1_14_06_161.tif`), all 5 DTW thresholds
 (`data/raw/luke/dtw2023_{050,1,2,4,10}ha__fi1_14_06_161.tif`).
 
-### D1b - next
-Reimplement DTW on the validation catchment: burn culverts at road/channel
-crossings, carve remaining pits (Lindsay 2016), route flow with D-infinity
-(Tarboton 1997) from the fetched DEM, take slope from the unmodified surface,
-initiate channels at the same 5 thresholds, compute slope-weighted cumulative
-distance to channel. Compare against the now-cached Luke DTW 2023 CMv2 at each
-threshold: agreement statistics plus a written account of where the two
-diverge (expected divergence: our D-infinity + carve vs Luke's D8 + breaching).
+### D1b - the exact catchment polygon (done)
+
+The DEM/DTW fetch in D1a used the catchment's **bounding box**; the actual
+comparison needs the true non-rectangular SYKE polygon (a rectangle would
+compare pixels outside the real watershed). Implemented
+`syke.fetch_catchment`: no route existed for this yet (Project 1 never touched
+SYKE), so checked the live `valumaalueet.zip` (259 MB) directly rather than
+assuming a layout - opened via GDAL's `/vsizip//vsicurl/` (the server sends
+`Accept-Ranges: bytes`, so this reads only what a `WHERE` query needs, not the
+whole archive). Found layers `Valumaaluejako_taso{1..5}` + `_purkupiste`
+(outlets); the id field is `taso4_osat`. Queried `FI1-14.06.161` directly:
+**148.22 km2**, bounds exactly matching the bbox already in
+`config/pipeline.yaml` - confirms the two were derived from the same source.
+The source CRS has no top-level EPSG authority tag (a raw PROJCS matching
+ETRS-TM35FIN's parameters exactly), so `fetch_catchment` sets EPSG:3067
+explicitly rather than trusting an inferred CRS.
+
+### D1c - next: reimplement DTW
+Clip the fetched DEM to the true catchment polygon (not the bbox); carve
+remaining pits (Lindsay 2016, via WhiteboxTools); route flow with D-infinity
+(Tarboton 1997); take slope from the unmodified surface; initiate channels at
+the same 5 thresholds (converted to a cell count at 2 m: 1 ha = 2,500 cells);
+compute the slope-weighted cumulative downslope distance to the nearest channel
+cell (the DTW metric itself - not a single stock tool in WhiteboxTools or
+pysheds, built from the flow-direction and slope rasters). Compare against the
+cached Luke DTW 2023 CMv2 at each threshold: agreement statistics plus a
+written account of where the two diverge (expected: our D-infinity + carve vs
+Luke's D8 + breaching).
+
+**Simplification flagged, not silently made:** the first pass skips
+**culvert-burning** (lowering the DEM at road/stream crossings so flow is not
+blocked by road embankments/culvert-modelling artefacts). It needs the NLS
+topographic database (`MTK-tie` roads, `MTK-virtavesi` streams), which has no
+fetch route built yet in this repo (only sketched in `DATA_SOURCES.md`) - a
+similar live-probe to the SYKE one above would be needed first. Proceeding
+without it for the first D1 comparison; if the agreement statistics show
+localised divergence at road crossings, that is the evidence to build it and
+re-run, rather than guessing it matters up front.
 
 ---
 
