@@ -47,6 +47,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import geopandas as gpd
+import numpy as np
 import rasterio
 
 from src.d1_dtw_derive import _run, _wbt
@@ -140,3 +141,74 @@ def extract_channel_network(
     lines = gpd.read_file(work_dir / vector_file)
     lines = lines.set_crs(crs, allow_override=True)
     return lines
+
+
+def rasterize_lines(lines: gpd.GeoDataFrame, grid_path: str | Path) -> np.ndarray:
+    """A line GeoDataFrame burned onto `grid_path`'s exact grid (same transform
+    and shape), 1 where a line touches a cell, 0 elsewhere. `all_touched=True`
+    so a line does not skip a cell it clips only at a corner - appropriate here
+    since the output feeds a distance transform, not an area count in its own
+    right."""
+    from rasterio.features import rasterize
+
+    with rasterio.open(grid_path) as src:
+        transform, shape = src.transform, (src.height, src.width)
+    if lines.empty:
+        return np.zeros(shape, dtype="uint8")
+    return rasterize(
+        [(geom, 1) for geom in lines.geometry if geom is not None],
+        out_shape=shape, transform=transform, fill=0, dtype="uint8", all_touched=True,
+    )
+
+
+def distance_to_features_m(mask: np.ndarray, resolution_m: float) -> np.ndarray:
+    """Euclidean distance in metres from each cell to the nearest True cell in
+    `mask` (a square-celled grid at `resolution_m`)."""
+    from scipy.ndimage import distance_transform_edt
+
+    mask = mask.astype(bool)
+    if not mask.any():
+        return np.full(mask.shape, np.inf, dtype="float64")
+    return distance_transform_edt(~mask) * resolution_m
+
+
+def buffer_comparison(
+    derived_lines: gpd.GeoDataFrame,
+    mapped_lines: gpd.GeoDataFrame,
+    grid_path: str | Path,
+    buffer_widths_m: list[float],
+) -> list[dict]:
+    """For each buffer width: area (ha) within that distance of the derived
+    channel network, of mapped hydrography, and the *additional* area the
+    derived network's buffer covers that mapped hydrography's does not - the
+    "hectares of buffer that mapped hydrography misses" figure the plan names
+    as a concrete water-protection output.
+
+    Rasterised and computed as a distance-transform threshold rather than
+    buffering and unioning vector polygons: at 378k+ derived-network line
+    segments (see docs/MODULE_E_NOTES.md E1b), a vector union at this feature
+    count is a well-known performance cliff for GEOS-backed buffering, and the
+    only thing actually needed here is an area figure, not buffer polygon
+    geometry - matching the raster-first approach already used throughout this
+    project's other surfaces (DTW, wetness).
+    """
+    with rasterio.open(grid_path) as src:
+        res_x = abs(src.transform.a)
+        res_y = abs(src.transform.e)
+    cell_area_ha = res_x * res_y / _HA_TO_M2
+
+    derived_dist = distance_to_features_m(rasterize_lines(derived_lines, grid_path), res_x)
+    mapped_dist = distance_to_features_m(rasterize_lines(mapped_lines, grid_path), res_x)
+
+    results = []
+    for width in buffer_widths_m:
+        derived_buf = derived_dist <= width
+        mapped_buf = mapped_dist <= width
+        additional = derived_buf & ~mapped_buf
+        results.append({
+            "buffer_width_m": width,
+            "derived_buffer_ha": round(float(derived_buf.sum() * cell_area_ha), 1),
+            "mapped_buffer_ha": round(float(mapped_buf.sum() * cell_area_ha), 1),
+            "additional_ha": round(float(additional.sum() * cell_area_ha), 1),
+        })
+    return results

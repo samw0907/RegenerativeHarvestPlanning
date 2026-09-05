@@ -171,9 +171,78 @@ credible channel hierarchy at all 5 thresholds, not a 16 m-resolution noise
 artefact - though see the caveat below on what a Finnish managed-forest
 network actually contains at the wet end.
 
-Not yet built: vectorised network -> 10/20/30 m buffers; the mapped-hydrography
-fetch (`nls.fetch_topographic`, still a stub) to compare against; the
-"hectares mapped hydrography misses" figure itself.
+### E1c - mapped hydrography fetch and the buffer comparison (done, 2026-09-05)
+
+**`nls.fetch_topographic` implemented, deviating from `DATA_SOURCES.md`'s
+per-block-directory route.** The plan called for resolving the AOI to NLS
+1:100k block codes (`shp/{block}/...`) to avoid downloading a multi-GB national
+file. Instead this reads the single national `MTK-virtavesi` GeoPackage (6.6 GB)
+directly via GDAL `/vsicurl/` with a bbox filter, the same pattern already used
+for the SYKE catchment fetch (`syke.fetch_catchment`) - the Funet mirror sends
+`Accept-Ranges: bytes`, so GDAL's spatially-indexed read only pulls the AOI's
+features. Confirmed live: 182,525 stream features for the full AOI in 297 s,
+cached afterwards (1.9 s on a repeat call). Slower than the block-tiled route
+would have been, but simpler for a one-off AOI-scale fetch, and avoids building
+a second block/tile-resolution scheme just for this one dataset - a documented
+trade-off, not an oversight.
+
+**`rasterize_lines`, `distance_to_features_m` and `buffer_comparison` added -
+raster-based, not vector polygon buffering.** At 378k derived-network segments,
+buffering each as a vector polygon and unioning them (the "obvious" GeoPandas
+approach) is a well-known GEOS performance cliff, and the analytical need here
+is an area figure, not buffer polygon geometry. Instead: rasterize both
+networks onto the 16 m grid, run a Euclidean distance transform from each
+(`scipy.ndimage.distance_transform_edt`, a deterministic algorithm, not a
+model), threshold at each buffer width, and count cells - the same raster-first
+idiom already used for DTW and the wetness surfaces. Unit tested against a
+synthetic 10x10 grid with two known parallel lines, including a buffer width
+chosen specifically to produce a real overlap (not just the disjoint case) to
+exercise the set-difference ("additional area") logic.
+
+**Full-AOI results** (AOI = 340,000 ha; mapped hydrography's own buffer is
+fixed across rows since it does not depend on the derived-network threshold):
+
+| threshold (ha) | 10 m: derived / mapped / additional (ha) | 20 m | 30 m |
+|---|---|---|---|
+| 0.5 | 60,269 / 31,572 / 47,171 | 139,911 / 64,330 / 96,286 | 169,756 / 74,374 / 113,544 |
+| 1.0 | 40,944 / 31,572 / 30,371 | 100,940 / 64,330 / 64,763 | 124,464 / 74,374 / 77,147 |
+| 2.0 | 28,632 / 31,572 / 20,143 | 73,015 / 64,330 / 43,653 | 90,873 / 74,374 / 52,141 |
+| 4.0 | 20,243 / 31,572 / 13,548 | 52,674 / 64,330 / 29,475 | 65,941 / 74,374 / 35,166 |
+| 10.0 | 12,949 / 31,572 / 8,217 | 34,238 / 64,330 / 17,979 | 43,058 / 74,374 / 21,437 |
+
+**A striking number was checked before being treated as a result, not reported
+on its own.** The 0.5 ha / 30 m cell reads as "additional" buffer area of
+113,544 ha - roughly a third of the entire AOI, and the derived network's own
+30 m buffer at that threshold (169,756 ha) is very close to half the AOI,
+about double mapped hydrography's own 30 m buffer share (74,374 ha, 21.9% of
+the AOI - an independent, sane-looking figure in its own right). A number this
+large deserves the same scrutiny the D1 tool-choice error should have gotten
+from the start, not acceptance because it is analytically convenient. Two
+things support treating it as real rather than a bug: (1) the E1b scaling-law
+check already showed the 0.5 ha network is not resolution noise, and (2) the
+pattern across thresholds is monotonic and physically sensible - derived
+buffer area shrinks steadily as the threshold rises, mapped hydrography's own
+figure is threshold-invariant (correct, since it is one fixed dataset every
+row), and at 10 ha the derived network is *sparser* than mapped hydrography
+(12,949 ha vs 31,572 ha at 10 m) - expected, since MTK-virtavesi is a
+comprehensive cartographic product while a 10 ha D8 threshold only captures
+the largest channels.
+
+**What the number does not mean, stated plainly:** it is not "hectares of
+natural stream buffer mapped hydrography failed to capture." Per the E1b
+caveat, the wet end of this range almost certainly includes a large share of
+Finnish managed-forest drainage ditches, which a low flow-accumulation
+threshold cannot distinguish from natural headwater streams - this repository
+has no independent ditch-network layer to separate the two. The honest framing
+for the README is a **range across waterway-class thresholds**, not a single
+headline figure: 0.5-1 ha as an inclusive upper bound (streams and drainage
+features combined), 10 ha as a conservative lower bound (major channels only,
+where the "additional" figure - 21,437 ha at 30 m, 6.3% of the AOI - is a much
+more defensible "mapped hydrography misses this" claim), with 2-4 ha as the
+middle ground most likely to represent genuine small natural streams without
+being ditch-dominated. Reporting the full table, not a cherry-picked row, is
+the point - the same sensitivity-sweep discipline Module F's connectivity work
+is already committed to.
 
 ---
 

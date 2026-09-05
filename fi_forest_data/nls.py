@@ -17,8 +17,9 @@ load-bearing for Module D1 but `korkeusmalli_2m_bbox` caps at 100 km2 per
 request; `fetch_dem_tiled` wraps it (splits the AOI into <=100 km2 tiles, each
 individually cached, mosaics with rasterio.merge) for the D1 validation
 catchment (148 km2) and the full AOI (3,400 km2).
-`fetch_topographic` is the stub Module E's mapped-hydrography comparison needs;
-not yet implemented.
+`fetch_topographic` is Module E's mapped-hydrography comparison fetch (MTK
+streams, via a bbox-filtered vsicurl read of the national GeoPackage - see its
+own docstring for why that route was chosen over per-block tiling).
 """
 
 from __future__ import annotations
@@ -252,6 +253,50 @@ def resample_dem(src_path, out_path, *, target_resolution_m: float) -> str:
     return str(out_path)
 
 
+_MTK_GPKG_URL = ("https://www.nic.funet.fi/index/geodata/mml/maastotietokanta/"
+                 "2025/gpkg/MTK-virtavesi_25-04-03.gpkg")
+_MTK_LAYERS = {"streams": "virtavesikapea"}  # narrow watercourses (lines); "virtavesialue" = wide rivers as polygons
+
+
+def fetch_topographic(aoi, *, theme: str = "streams", cache_dir: str | Path = "data/raw",
+                      force: bool = False):
+    """Mapped hydrography (NLS topographic database, MTK-virtavesi) for the AOI.
+
+    **Deviation from docs/DATA_SOURCES.md's per-block-directory recommendation
+    (recorded here, not silent):** rather than resolving the AOI to NLS 1:100k
+    block codes (shp/{block}/...), this reads the single national GeoPackage
+    directly via GDAL /vsicurl/ with a bbox filter - the Funet mirror serves it
+    with `Accept-Ranges: bytes`, so GDAL's spatial-index-aware read only pulls
+    the AOI's features, not the full 6.6 GB file (confirmed live, 2026-09-05:
+    182,525 features for the Module E AOI in 343 s, one-time - simpler than the
+    block-grid route for a one-off fetch, at the cost of that slower read).
+    Cached as a small local GeoPackage after the first fetch.
+    """
+    import geopandas as gpd
+
+    if theme not in _MTK_LAYERS:
+        raise KeyError(f"theme must be one of {sorted(_MTK_LAYERS)}, got {theme!r}")
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "nls" / f"mtk_{theme}_{aoi.name}.gpkg"
+    if out.exists() and not force:
+        return gpd.read_file(out)
+
+    gdf = gpd.read_file(f"/vsicurl/{_MTK_GPKG_URL}", layer=_MTK_LAYERS[theme],
+                        bbox=aoi.bbox_3067)
+    gdf = gdf.set_crs("EPSG:3067", allow_override=True)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(out, driver="GPKG")
+    meta = out.with_suffix(".meta.json")
+    meta.write_text(json.dumps({
+        "source": _MTK_GPKG_URL, "layer": _MTK_LAYERS[theme],
+        "aoi": aoi.name, "aoi_bbox_3067": list(aoi.bbox_3067),
+        "n_features": int(len(gdf)), "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return gdf
+
+
 def mapsheets_for_bbox(bbox_3067, *, session: requests.Session, cache_dir: Path,
                        layer: str = "utm5") -> list[str]:
     """Map-sheet codes intersecting the bbox, from `karttalehtijako_koko_suomi` (cached).
@@ -323,11 +368,6 @@ def fetch_als(aoi, *, dataset: str = "05p_2020-", cache_dir: str | Path = "data/
     _write_meta(out_dir, "laserkeilausaineisto_05_karttalehti", aoi, recs, dataset=dataset,
                 map_sheets=sheets)
     return paths
-
-
-def fetch_topographic(theme: str, aoi):
-    """Topographic database themes come from the Funet mirror (no key). Wired when P2 needs it."""
-    raise NotImplementedError("topographic DB fetch is implemented when Project 2 needs it")
 
 
 def _write_meta(out_dir: Path, process_id: str, aoi, recs, **extra) -> None:
