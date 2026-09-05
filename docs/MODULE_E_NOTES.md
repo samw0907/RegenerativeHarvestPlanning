@@ -120,6 +120,61 @@ grid) - **966 s** (~16 min), matching the D1 catchment's per-tile timing
 Finland), and the 16 m resample's sampled min/max/mean match the 2 m mosaic's
 to within rounding - confirms the averaging did not introduce artefacts.
 
+### E1b - full-AOI channel network derivation (done, 2026-09-05)
+
+`src/e_plus_site_planning.py`: `prepare_flow_accumulation` (BreachDepressionsLeastCost
+-> D8Pointer -> D8FlowAccumulation, computed once) and `extract_channel_network`
+(ExtractStreams at a given threshold -> RasterStreamsToVector), per the D8
+decision in section 2.2. `cells_for_distance` (physical distance -> whole cell
+count at a given resolution, unit tested) keeps the breach search radius
+comparable in real terms to D1's, rather than reusing D1's raw cell count,
+which meant something different at 2 m.
+
+**Engineering note caught during this step, not before it:** the first version
+ran breach+pointer+accumulation inside the same function as the per-threshold
+extract+vectorise step, so deriving multiple waterway-class thresholds meant
+redoing the ~450 s accumulation step every time (measured directly: three
+separate calls at 0.5/2/10 ha took 450, 445 and 454 s each - the extraction
+step is not what dominates the runtime). Refactored to compute the
+accumulation raster once and reuse it: the remaining three thresholds (1, 2,
+4 ha - only 2 ha was already done) then took **1-5 s each**, not 450 s.
+
+**Full-AOI results, all 5 of D1's thresholds (16 m, D8):**
+
+| threshold (ha) | n segments | length (km) | density (km/km²) |
+|---|---|---|---|
+| 0.5 | 377,903 | 37,539 | 11.04 |
+| 1.0 | 184,407 | 25,471 | 7.49 |
+| 2.0 | 92,805 | 17,831 | 5.24 |
+| 4.0 | 46,656 | 12,632 | 3.72 |
+| 10.0 | 18,509 | 8,105 | 2.38 |
+
+**A genuine validation check, run because the 0.5 ha density looked high
+enough to be worth distrusting, not because it was asked for.** At 16 m, a
+0.5 ha channel-initiation threshold needs only ~20 contributing cells
+(0.5 ha / 0.0256 ha per 16 m cell) - a far less discriminating bar than the
+same 0.5 ha threshold's 1,250 cells at D1's 2 m, so a dense, noise-inflated
+network was a real possibility worth checking, not assuming away. The check:
+does channel length scale across thresholds the way a real drainage network
+does? Real channel networks follow an approximately power-law relationship
+between total length and the contributing-area threshold (Horton's laws /
+Rodriguez-Iturbe & Rinaldo's river network scaling, commonly close to
+length ~ threshold^-0.5 empirically) - noise-dominated artefacts would not be
+expected to follow this cleanly. The four consecutive threshold steps here
+give implied exponents of **-0.56, -0.51, -0.50, -0.48** - tightly clustered
+around the expected -0.5 across the *entire* range, including the 0.5 ha step
+that prompted the check. The 10 ha ("major streams only") density of
+2.38 km/km² also sits inside commonly cited real-world drainage-density ranges
+for well-developed channel networks, an independent cross-check in the same
+direction. Read together, this is reasonable evidence the derived network is a
+credible channel hierarchy at all 5 thresholds, not a 16 m-resolution noise
+artefact - though see the caveat below on what a Finnish managed-forest
+network actually contains at the wet end.
+
+Not yet built: vectorised network -> 10/20/30 m buffers; the mapped-hydrography
+fetch (`nls.fetch_topographic`, still a stub) to compare against; the
+"hectares mapped hydrography misses" figure itself.
+
 ---
 
 ## 4. Results and what they mean
@@ -140,3 +195,13 @@ to within rounding - confirms the averaging did not introduce artefacts.
   VMI2022 update, not yet cross-checked against the primary PxWeb table or a
   formal Luke publication PDF - worth pinning to a citable primary source
   before the figure appears in the README, not just a paraphrased news figure.
+- The 0.5 ha network's scaling behaviour is credible, but that does not mean
+  every segment in it is a natural stream. Finnish managed forest on peatland
+  is heavily ditched (ojitus) for drainage, and a dense artificial ditch
+  network is exactly the kind of converging-flow feature a low threshold would
+  also pick up - the D8 accumulation surface cannot distinguish "small natural
+  headwater stream" from "forestry drainage ditch" by construction. Both
+  arguably matter for the water-protection buffer question the module is
+  built to answer, but the results writeup should name the network as "small
+  streams and drainage features" at the wet end, not claim it is purely
+  natural channels mapped hydrography failed to capture.
