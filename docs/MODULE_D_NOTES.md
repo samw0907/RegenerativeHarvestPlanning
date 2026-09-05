@@ -228,6 +228,51 @@ call: correctly returns 10 stations within 30 km of the P2 AOI, station 101537
 at 17.1 km, matching the TASK 00 pick). `fi_forest_data/luke.py` gained the
 `soil_main_type` (`paatyyppi`) theme.
 
+### D3a - root rot rule engine (done, 2026-09-05)
+
+`src/d3_rootrot_rules.py`: species/soil trigger (mineral: pine+spruce share >=
+50%; peat: spruce share alone >= 50%), the fixed calendar period (1 May-30 Nov),
+a cold-spell exemption (any tmin < -10 C in the trailing 21 days before
+felling), and `evaluate_obligation` combining all three. Purely deterministic
+- no fitted model, no ML question. Fully unit tested
+(`tests/test_d3_rootrot_rules.py`), including a real early-May cold-snap case
+confirmed against the live FMI record (see below).
+
+**Tested against real stand data.** Fetched Metsakeskus `stand` for the D1
+catchment (11,557 stands, first Metsakeskus fetch in this repo): **10.4 % peat
+by `soiltype`**, matching MS-NFI's `paatyyppi`-based 9.1 % for the same area
+almost exactly - two independent Metsakeskus/Luke data sources agreeing on
+the same catchment's soil composition is a good cross-check. The species/soil
+rule triggers on **70.4 %** of stands (7,990 mineral + 143 peat) - this
+catchment is heavily conifer, so the obligation is the common case, not the
+exception, here.
+
+**Cold-spell exemption confirmed against the real 55-year record**, not just
+synthetic tests: of 825 early-May dates (1970-2024, day <= 15), **107 (13 %)**
+get the exemption; the first hit (1 May 1970) has a real trailing-21-day
+minimum of -10.5 C, just past the -10 C threshold.
+
+**`spore_season_bounds` - the measured biological season vs the regulatory
+calendar window.** Using FMI's own "thermal growing season" definition (first/
+last day of a >=5-day run with mean temperature >= +5 C - the same threshold
+config already used for spore dispersal), the *actual* warm season in
+representative years ran 153-189 days (e.g. 2000: 19 Apr - 25 Oct; 2020: 2 May
+- 7 Nov) - shorter than but well inside the fixed 1 May-30 Nov (214-day)
+calendar window, which is consistent with that window being a deliberately
+generous regulatory approximation. **The measured season has lengthened
+noticeably over the record**: mean 147.2 days in 1970-1979 vs **176.9 days in
+2015-2024 - about 30 days (20 %) longer.** This is a genuine, quantified,
+climate-consistent finding, and the flip side of the plan's own flagged talking
+point (a shortening *frozen* harvest window) - the same warming trend that
+raises root-rot risk duration also compresses the frozen season Module D's
+own trafficability logic depends on.
+
+Urea watercourse setback (`urea_setback_violation`) is implemented and unit
+tested against synthetic geometry; not yet run against D1's actual derived
+channel network for the catchment (that channel network exists as the D-infinity
+flow-accumulation raster from D1, not yet vectorised into a line network usable
+for a distance query - a small remaining step).
+
 ---
 
 ## 4. Results and what they mean
@@ -258,6 +303,16 @@ at 17.1 km, matching the TASK 00 pick). `fi_forest_data/luke.py` gained the
   ~7x closer to saturation (0.89 m) than the mineral median (6.22 m). Both
   terms are transparent, unit-tested, deterministic transformations - no
   fitted model, matching the method constraint.
+- **D3's rule engine reproduces the legal test cleanly and finds a genuine
+  climate signal along the way.** On the D1 catchment's real stand data
+  (11,557 stands), the obligation triggers on 70 % of stands, and two
+  independent data sources (Metsakeskus `soiltype`, MS-NFI `paatyyppi`) agree
+  the catchment is ~10 % peat. The cold-spell exemption fires on real
+  historical cold snaps (13 % of early-May dates over 55 years). Measuring the
+  *actual* warm season from temperature rather than assuming the fixed
+  calendar window shows it has lengthened **~30 days (20 %)** from the 1970s to
+  2015-2024 - a quantified, climate-consistent finding that is also directly
+  relevant to the harvest-window problem Module D exists to solve.
 
 ---
 
@@ -288,3 +343,15 @@ at 17.1 km, matching the TASK 00 pick). `fi_forest_data/luke.py` gained the
 - Only demonstrated on 3 hand-picked dates (chosen for being clear, well-known
   extremes); a systematic check across the full 55-year record (e.g. does
   known snowmelt onset consistently trigger a threshold shift) is not done.
+- D3's urea watercourse setback is unit tested on synthetic geometry only - not
+  yet run against D1's real derived channel network, which needs vectorising
+  from the D-infinity flow-accumulation raster to a line network first.
+- D3 uses one FMI station for the whole 3,400 km2 AOI, same as D2; municipality-
+  level variation in frost timing (the legal test is specifically municipality
+  minimum temperature) is not resolved - a second or third station may be
+  worth adding once D1/D2/D3 run at AOI scale rather than on one catchment.
+- `spore_season_bounds`'s 5-day-run threshold is FMI's own published
+  convention (reused deliberately, not invented), but the mapping of "thermal
+  growing season" onto "root-rot spore dispersal season" - both keyed on the
+  same +5 C threshold in the Finnish literature - is a reasonable inference,
+  not a cited one-to-one equivalence.
