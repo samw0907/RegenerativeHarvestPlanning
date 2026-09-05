@@ -14,9 +14,9 @@ is never logged or written to any output.
 Copied from boreal-stand-intelligence. This repo has no ALS use, so `fetch_als`
 is unused (kept for parity - do not build against it). `fetch_dem` is
 load-bearing for Module D1 but `korkeusmalli_2m_bbox` caps at 100 km2 per
-request; the D1 validation catchment (148 km2) and the full AOI (3,400 km2)
-both exceed it, so fetch_dem needs a tiling wrapper (split the bbox into
-<=100 km2 windows, mosaic) before D1 can run - build that first.
+request; `fetch_dem_tiled` wraps it (splits the AOI into <=100 km2 tiles, each
+individually cached, mosaics with rasterio.merge) for the D1 validation
+catchment (148 km2) and the full AOI (3,400 km2).
 `fetch_topographic` is the stub Module E's mapped-hydrography comparison needs;
 not yet implemented.
 """
@@ -156,8 +156,67 @@ def fetch_dem(aoi, *, resolution_m: int = 2, cache_dir: str | Path = "data/raw",
     return str(out_dir / recs[0]["fileName"])
 
 
-def _mapsheets_for_bbox(bbox_3067, *, session: requests.Session, cache_dir: Path,
-                        layer: str = "utm5") -> list[str]:
+def fetch_dem_tiled(aoi, *, resolution_m: int = 2, cache_dir: str | Path = "data/raw",
+                    tile_km: float = 9.0, force: bool = False) -> str:
+    """2 m DEM mosaic for an AOI larger than the 100 km2 `fetch_dem` cap.
+
+    Splits the AOI bbox into a grid of tile_km x tile_km tiles (default 9 km =
+    81 km2, safely under the cap), fetches each with `fetch_dem` (so each tile
+    is individually cached - a re-run after a partial failure only re-fetches
+    what is missing), and mosaics them into one GeoTIFF covering the full AOI
+    bbox. Needed for the D1 validation catchment (148 km2) and the full AOI
+    (3,400 km2); use plain `fetch_dem` directly for anything <= 100 km2.
+    """
+    import math
+    from dataclasses import replace as _replace
+
+    import rasterio
+    from rasterio.merge import merge
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "nls" / f"dem2m_mosaic_{aoi.name}.tif"
+    if out.exists() and not force:
+        return str(out)
+
+    minx, miny, maxx, maxy = aoi.bbox_3067
+    step = tile_km * 1000.0
+    nx = max(1, math.ceil((maxx - minx) / step))
+    ny = max(1, math.ceil((maxy - miny) / step))
+
+    tile_paths = []
+    for i in range(nx):
+        for j in range(ny):
+            tminx, tmaxx = minx + i * step, min(minx + (i + 1) * step, maxx)
+            tminy, tmaxy = miny + j * step, min(miny + (j + 1) * step, maxy)
+            tile_aoi = _replace(aoi, name=f"{aoi.name}_tile_{i}_{j}",
+                                bbox_3067=(tminx, tminy, tmaxx, tmaxy))
+            tile_paths.append(fetch_dem(tile_aoi, resolution_m=resolution_m,
+                                        cache_dir=cache_dir, force=force))
+
+    srcs = [rasterio.open(p) for p in tile_paths]
+    mosaic, transform = merge(srcs)
+    profile = srcs[0].profile
+    profile.update(height=mosaic.shape[1], width=mosaic.shape[2],
+                   transform=transform, dtype=mosaic.dtype)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(out, "w", **profile) as dst:
+        dst.write(mosaic)
+    for s in srcs:
+        s.close()
+
+    meta = out.with_suffix(".meta.json")
+    meta.write_text(json.dumps({
+        "source": "korkeusmalli_2m_bbox (NLS OGC API Processes, tiled)",
+        "n_tiles": len(tile_paths), "tile_km": tile_km,
+        "aoi": aoi.name, "aoi_bbox_3067": [minx, miny, maxx, maxy],
+        "shape": [int(x) for x in mosaic.shape],
+        "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return str(out)
+
+
+def mapsheets_for_bbox(bbox_3067, *, session: requests.Session, cache_dir: Path,
+                       layer: str = "utm5") -> list[str]:
     """Map-sheet codes intersecting the bbox, from `karttalehtijako_koko_suomi` (cached).
 
     Default `utm5` = the 3 km sheets the 0.5 p laser tiles use (e.g. M5233C1).
@@ -210,7 +269,7 @@ def fetch_als(aoi, *, dataset: str = "05p_2020-", cache_dir: str | Path = "data/
 
     session = _session()
     try:
-        sheets = _mapsheets_for_bbox(aoi.bbox_3067, session=session, cache_dir=cache_dir)
+        sheets = mapsheets_for_bbox(aoi.bbox_3067, session=session, cache_dir=cache_dir)
         if not sheets:
             raise RuntimeError("no map sheets intersect the AOI bbox")
         if len(sheets) > 100:

@@ -10,13 +10,18 @@ AOI (COG-tiled source, windowed /vsicurl read).
 
     fetch_msnfi(theme, aoi, year=2023) -> str   # path to a windowed COG for the AOI
 
-`fetch_dtw` is a stub raised in Project 1 for "the companion repo" - that is
-this repo. Implementing it is Module D1's first real task, not scaffolding:
-Luke DTW 2019/2023 is delivered as mapsheet GeoTIFF tiles + a tile-index
-shapefile (not one whole-Finland file like MS-NFI), so it needs the mapsheet
-resolution logic `nls.fetch_als` already has, adapted to this tile scheme, plus
-the unit fix (2019 = mm i.e. metres x1000, 2023 CMv2 = cm i.e. metres x100 -
-TASK 00 decision D3: use 2023 CMv2, thresholds [0.5, 1, 2, 4, 10] ha).
+`fetch_dtw` - Luke DTW 2023 CMv2 depth-to-water, one channel-initiation
+threshold at a time. Delivered as flat directories of 6x6 km tiles named by the
+NLS UTM10 mapsheet code (confirmed live, 2026-09-05: `.../DTW_INT_CMv2_{050,1,
+2,4,10}/{sheet}.tif`, e.g. `K3222B.tif`) - the same grid `nls.mapsheets_for_bbox`
+already resolves, reused here rather than parsing Luke's own tile-index
+shapefile. Int16, centimetres (metres x100), nodata 32767. Only 2023 CMv2 is
+wired up (TASK 00 decision D3); the 2019 vintage uses millimetres and a
+different threshold set, and mixing the two units is the one hard "do not do
+this" for this module.
+
+    fetch_dtw(threshold_ha, aoi, year=2023) -> str   # path to a mosaicked COG for the AOI
+
 Routes confirmed in TASK 00, docs/DATA_SOURCES.md sections 2-3.
 """
 
@@ -32,6 +37,10 @@ from rasterio.windows import from_bounds
 
 _BASE = "https://www.nic.funet.fi/index/geodata/luke/vmi"
 _SUFFIX = {2023: "1923"}          # plot-year span baked into the 2023 product filenames
+
+_DTW_BASE = "https://www.nic.funet.fi/index/geodata/luke/dtw"
+_DTW_DIR = {0.5: "050", 1: "1", 2: "2", 4: "4", 10: "10"}   # 2023 CMv2 threshold dirs
+DTW_NODATA = 32767
 
 # friendly name -> Funet theme stem
 THEMES = {
@@ -118,8 +127,81 @@ def fetch_msnfi(
     return str(out)
 
 
-def fetch_dtw(threshold_ha: float, aoi):
-    raise NotImplementedError(
-        "Module D1: implement against Luke DTW 2023 CMv2 (mapsheet-tiled, "
-        "Funet mirror, values in cm) - see docs/DATA_SOURCES.md section 3"
-    )
+def fetch_dtw(
+    threshold_ha: float,
+    aoi,
+    *,
+    year: int = 2023,
+    cache_dir: str | Path = "data/raw",
+    force: bool = False,
+) -> str:
+    """DTW mosaic for the AOI at one channel-initiation threshold (2023 CMv2).
+
+    Values are centimetres (metres x100), Int16, nodata 32767. Finds the NLS
+    UTM10 (6 km) mapsheets intersecting the AOI, downloads each threshold
+    directory's `{sheet}.tif` from the Funet mirror, mosaics and crops to the
+    AOI bbox exactly. A sheet with no HTTP 200 (edge of the DTW extent, e.g.
+    over water or outside Finland) is skipped, not an error.
+    """
+    import requests
+    from rasterio.merge import merge
+
+    from fi_forest_data import nls
+
+    if year != 2023:
+        raise NotImplementedError("only the 2023 CMv2 product is wired up (TASK 00 decision D3)")
+    if threshold_ha not in _DTW_DIR:
+        raise KeyError(f"threshold_ha must be one of {sorted(_DTW_DIR)}, got {threshold_ha}")
+    thr_dir = _DTW_DIR[threshold_ha]
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "luke" / f"dtw2023_{thr_dir}ha__{aoi.name}.tif"
+    if out.exists() and not force:
+        return str(out)
+
+    session = nls._session()
+    try:
+        sheets = nls.mapsheets_for_bbox(aoi.bbox_3067, session=session,
+                                        cache_dir=cache_dir, layer="utm10")
+    finally:
+        session.close()
+
+    tile_dir = cache_dir / "luke" / "dtw_tiles" / f"{thr_dir}ha"
+    tile_dir.mkdir(parents=True, exist_ok=True)
+    base_url = f"{_DTW_BASE}/{year}/DTW_INT_CMv2_{thr_dir}"
+    paths = []
+    for sheet in sheets:
+        dest = tile_dir / f"{sheet}.tif"
+        if not dest.exists() or force:
+            r = requests.get(f"{base_url}/{sheet}.tif", timeout=120)
+            if r.status_code == 404:
+                continue
+            r.raise_for_status()
+            dest.write_bytes(r.content)
+        paths.append(dest)
+    if not paths:
+        raise RuntimeError(f"no DTW {threshold_ha} ha tiles found for {aoi.name}")
+
+    srcs = [rasterio.open(p) for p in paths]
+    mosaic, transform = merge(srcs, bounds=aoi.bbox_3067)
+    profile = srcs[0].profile
+    profile.update(height=mosaic.shape[1], width=mosaic.shape[2], transform=transform)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(out, "w", **profile) as dst:
+        dst.write(mosaic)
+        dst.update_tags(
+            attribution="Contains Natural Resources Institute Finland DTW data, CC BY 4.0",
+            threshold_ha=str(threshold_ha), year=str(year), product="CMv2", unit="cm",
+        )
+    for s in srcs:
+        s.close()
+
+    meta = out.with_suffix(".meta.json")
+    meta.write_text(json.dumps({
+        "product": "dtw_2023_cmv2", "threshold_ha": threshold_ha, "year": year,
+        "unit": "cm", "nodata": DTW_NODATA, "crs": "EPSG:3067",
+        "n_tiles": len(paths), "sheets": [p.stem for p in paths],
+        "aoi": aoi.name, "aoi_bbox_3067": list(aoi.bbox_3067),
+        "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return str(out)
