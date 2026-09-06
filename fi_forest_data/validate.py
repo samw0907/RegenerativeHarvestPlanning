@@ -143,9 +143,10 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
     if not isinstance(e, dict):
         problems.append("top level: missing 'module_e_plus' block")
     else:
-        bw = e.get("buffer_widths_m")
-        if not isinstance(bw, list) or not bw or not all(isinstance(x, (int, float)) and x > 0 for x in bw):
-            problems.append("module_e_plus.buffer_widths_m: expected a non-empty list of positive numbers")
+        for key in ("buffer_widths_m", "habitat_setback_widths_m"):
+            v = e.get(key)
+            if not isinstance(v, list) or not v or not all(isinstance(x, (int, float)) and x > 0 for x in v):
+                problems.append(f"module_e_plus.{key}: expected a non-empty list of positive numbers")
         _num(problems, e, "dtw_wet_threshold_m", 0, None, "module_e_plus")
         _num(problems, e, "retention_trees_per_ha", 0, None, "module_e_plus")
         _num(problems, e, "retention_min_dbh_cm", 0, None, "module_e_plus")

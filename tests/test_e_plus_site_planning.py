@@ -189,3 +189,27 @@ def test_conflict_free_felling_window_counts_only_frozen_days_outside_the_mandat
     # with exactly the 20 January frost days and none of the October ones
     assert set(out["per_winter_days"].values()) == {20}
     assert out["by_decade_mean_days"] == {2000: 20.0}
+
+
+def test_habitat_proximity_counts_stands_within_each_setback():
+    from shapely.geometry import Polygon
+
+    from src.e_plus_site_planning import habitat_proximity
+
+    # one habitat polygon at x in [100, 110]; three stands 5 m / 15 m / 25 m west of it
+    hab = gpd.GeoDataFrame(
+        {"habitattype": [1]},
+        geometry=[Polygon([(100, 0), (110, 0), (110, 10), (100, 10)])], crs="EPSG:3067")
+
+    def sq(x0):
+        return Polygon([(x0, 0), (x0 + 5, 0), (x0 + 5, 10), (x0, 10)])
+
+    stands = gpd.GeoDataFrame(
+        {"area": [1.0, 2.0, 4.0]},
+        geometry=[sq(90), sq(80), sq(70)], crs="EPSG:3067")  # gaps: 5, 15, 25 m
+
+    out = {r["setback_m"]: r for r in habitat_proximity(stands, hab, [10, 20, 30])}
+    assert out[10]["n_stands_within"] == 1 and out[10]["stand_area_ha_within"] == pytest.approx(1.0)
+    assert out[20]["n_stands_within"] == 2 and out[20]["stand_area_ha_within"] == pytest.approx(3.0)
+    assert out[30]["n_stands_within"] == 3 and out[30]["stand_area_ha_within"] == pytest.approx(7.0)
+    assert out[30]["stand_area_ha_nearest_habtype_1"] == pytest.approx(7.0)

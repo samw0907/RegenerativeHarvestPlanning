@@ -39,6 +39,7 @@ module_d3_rootrot:
 
 module_e_plus:
   buffer_widths_m: [10, 20, 30]
+  habitat_setback_widths_m: [10, 20, 30]   # Forest Act §10 habitats: no single legal number - swept at the Plus waterway-buffer widths
   dtw_wet_threshold_m: 1.0            # Hilli & Mykra et al. 2022: 0.8-1.2 m band, upland-species boundary
   retention_trees_per_ha: 30
   retention_min_dbh_cm: 15

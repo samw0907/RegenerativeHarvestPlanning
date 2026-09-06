@@ -351,3 +351,45 @@ def conflict_free_felling_window(daily_weather: pd.DataFrame, cfg_d3: dict) -> d
         "first_decade_mean": float(by_decade.iloc[0]),
         "last_decade_mean": float(by_decade.iloc[-1]),
     }
+
+
+def habitat_proximity(
+    stands: gpd.GeoDataFrame,
+    habitats: gpd.GeoDataFrame,
+    setback_widths_m: list[float],
+) -> list[dict]:
+    """Per setback width: the count and stand area within that distance of a
+    Forest Act §10 valuable-habitat polygon, plus the split by the nearest
+    habitat's `habitattype`.
+
+    Distance to the nearest habitat is one STRtree-backed `sjoin_nearest` pass;
+    a stand overlapping a habitat gets distance 0. The type split is by the
+    *nearest* habitat only - a stand close to two habitat types is attributed
+    to the closer one - so the per-type figures sum to the total but do not
+    double-count. Reported for all stands, since a §10 setback binds whenever
+    that stand is harvested, not only where a cutting is currently proposed."""
+    left = stands[["geometry"]].copy()
+    left["_row"] = np.arange(len(left))
+    joined = gpd.sjoin_nearest(
+        left, habitats[["habitattype", "geometry"]], how="left", distance_col="dist_m")
+    joined = joined.sort_values("dist_m").drop_duplicates("_row").set_index("_row")
+    joined = joined.reindex(np.arange(len(stands)))
+
+    area_ha = pd.to_numeric(stands["area"], errors="coerce").fillna(0.0).to_numpy()
+    dist = joined["dist_m"].to_numpy()
+    htype = pd.to_numeric(joined["habitattype"], errors="coerce").to_numpy()
+    types = sorted(int(t) for t in np.unique(htype[~np.isnan(htype)]))
+
+    results = []
+    for w in setback_widths_m:
+        within = dist <= w
+        row = {
+            "setback_m": w,
+            "n_stands_within": int(np.count_nonzero(within)),
+            "stand_area_ha_within": round(float(area_ha[within].sum()), 1),
+        }
+        for t in types:
+            m = within & (htype == t)
+            row[f"stand_area_ha_nearest_habtype_{t}"] = round(float(area_ha[m].sum()), 1)
+        results.append(row)
+    return results

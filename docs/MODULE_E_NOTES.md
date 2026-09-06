@@ -301,8 +301,8 @@ continuous-cover silviculture proposal) is set on 264 of 168,026 stands
 so not a validation, but it confirms CCS is currently a rare proposal in this
 data, consistent with Plus targeting an increase from a low base.
 
-Not yet built: §10 habitat proximity / setbacks; RUSLE erosion risk; the
-per-stand site-plan record assembly and `figures.py` / `run.py`.
+Not yet built: RUSLE erosion risk; the per-stand site-plan record assembly and
+`figures.py` / `run.py`.
 
 ### E3 - the Plus CCF vs root-rot conflict overlay (done, 2026-09-06)
 
@@ -360,6 +360,43 @@ the 2010s but has not shown a strong sustained decline over the record. Not
 Unit tested: the stand overlap (synthetic stands, boundary spruce share) and
 the window count (synthetic weather with frost runs placed inside and outside
 the mandatory period).
+
+### E4 - §10 valuable-habitat proximity (done, 2026-09-06)
+
+`habitat_proximity` in `src/e_plus_site_planning.py`. `fetch_layer("habitat")`
+returns 2,099 Forest Act §10 valuable-habitat polygons for the full AOI
+(1,072 ha total, median 0.32 ha, all polygons; fetched in 3 s, cached). Two
+`habitattype` values: type 1 (1,768 polygons) and type 3 (331). A single
+`gpd.sjoin_nearest` gives every stand its distance to the nearest habitat
+(21 s for 168,026 stands); each setback width then counts the stands and stand
+area within it, split by the nearest habitat's type.
+
+| setback | stands within | stand area within (ha) | % of stand area | nearest type 1 / type 3 (ha) |
+|---|---|---|---|---|
+| 10 m | 8,695 | 11,709 | 5.0% | 9,981 / 1,728 |
+| 20 m | 9,760 | 13,488 | 5.7% | 11,536 / 1,952 |
+| 30 m | 10,712 | 15,013 | 6.4% | 12,858 / 2,154 |
+
+**Reading.** About 5-6% of private-forest stand area is within a Plus-scale
+setback of a §10 habitat - a real operational constraint, not a dominant one.
+The affected area barely grows from 10 m to 30 m (11,709 -> 15,013 ha): the
+habitats are small scattered polygons (~1 per 1.6 km²), so once the stands that
+touch them are counted, widening the setback only picks up a thin fringe more.
+The type split tracks the polygon counts - ~85% of the affected area is nearest
+a type-1 habitat.
+
+**What the number is and is not.** "Stand area within" is the area of every
+stand that has any part inside the setback - a large stand touching one small
+habitat contributes its whole area. It is "stand area subject to a §10 setback
+constraint when harvested", not the area that must be left uncut (the actual
+retained strip is a thin buffer, far smaller). There is no single legal setback
+distance for §10 habitats - the Forest Act requires preserving their special
+characteristics without naming a width - so this is swept at the Plus
+waterway-buffer widths (config `habitat_setback_widths_m`) rather than asserting
+one number.
+
+Unit tested with three stands at known 5 / 15 / 25 m gaps from one habitat
+polygon.
 
 ---
 
