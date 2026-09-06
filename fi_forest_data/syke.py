@@ -23,25 +23,35 @@ Routes (docs/DATA_SOURCES.md section 7):
   `natura.zip` (`natura2000sac_alueet.shp`, `natura2000spa_alueet.shp`) - Module F
   connectivity nodes. Not yet implemented.
 - `d3/Static_rs/spesific/clc2018_fi20m.zip` - CORINE Land Cover 2018, 20 m
-  GeoTIFF. Check for a CLC2024 release at Project 2 start (TASK 00 D4, open).
-  Module E RUSLE C-factor. Not yet implemented.
+  GeoTIFF (273 MB). Module E RUSLE C-factor. TASK 00 D4 resolved 2026-09-06:
+  no CLC2024/2021/2020 at this route (checked live), CLC2018 is the latest.
+  The raster carries SYKE's own 49-class national scheme in the pixel values
+  (not the CLC Level-3 codes); the class legend is in the zip's `.tif.vat.dbf`.
+  CRS is declared EPSG:25835 (ETRS89 / UTM 35N) - coordinate-identical to
+  EPSG:3067 (same datum, projection and parameters), so `fetch_clc` assigns
+  3067 for downstream consistency rather than warping.
 
 Public interface:
     fetch_catchment(catchment_id, level="taso4") -> gpd.GeoDataFrame   # done
+    fetch_clc(aoi, year=2018) -> str                 # path to the AOI-window GeoTIFF
 
 Planned, not yet implemented:
     fetch_protected_areas(aoi) -> gpd.GeoDataFrame   # state + private + Natura, merged
-    fetch_clc(aoi, year=2018) -> str                 # path to a windowed COG
 """
 
 from __future__ import annotations
 
+import json
+from datetime import date
 from pathlib import Path
 
 import geopandas as gpd
 
 _VALUMA_URL = "https://wwwd3.ymparisto.fi/d3/gis_data/spesific/valumaalueet.zip"
 _ID_FIELD = {"taso4": "taso4_osat", "taso5": "taso5_osat"}
+
+_CLC_URL = {2018: "https://wwwd3.ymparisto.fi/d3/Static_rs/spesific/clc2018_fi20m.zip"}
+_CLC_TIF = {2018: "Clc2018_FI20m.tif"}
 
 
 def fetch_catchment(catchment_id: str, *, level: str = "taso4",
@@ -72,3 +82,45 @@ def fetch_catchment(catchment_id: str, *, level: str = "taso4",
     out.parent.mkdir(parents=True, exist_ok=True)
     gdf.to_file(out, driver="GPKG")
     return gdf
+
+
+def fetch_clc(aoi, *, year: int = 2018, cache_dir: str | Path = "data/raw",
+              force: bool = False) -> str:
+    """CORINE Land Cover for the AOI bbox, as a local GeoTIFF.
+
+    Reads the AOI window out of SYKE's national 20 m raster via
+    /vsizip//vsicurl/ (the server sends `Accept-Ranges: bytes`, so the 273 MB
+    zip is not downloaded whole) and writes just that window to a cached
+    GeoTIFF. Pixel values are SYKE's 49-class national scheme (see the module
+    docstring). CRS is set to EPSG:3067 - the source declares the
+    coordinate-identical EPSG:25835.
+    """
+    import rasterio
+    from rasterio.windows import from_bounds
+
+    if year not in _CLC_URL:
+        raise KeyError(f"year must be one of {sorted(_CLC_URL)}, got {year}")
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "syke" / f"clc{year}_{aoi.name}.tif"
+    if out.exists() and not force:
+        return str(out)
+
+    src_path = f"/vsizip//vsicurl/{_CLC_URL[year]}/{_CLC_TIF[year]}"
+    minx, miny, maxx, maxy = aoi.bbox_3067
+    with rasterio.open(src_path) as src:
+        window = from_bounds(minx, miny, maxx, maxy, src.transform)
+        data = src.read(1, window=window)
+        transform = src.window_transform(window)
+        profile = dict(src.profile, height=data.shape[0], width=data.shape[1],
+                       transform=transform, crs="EPSG:3067", driver="GTiff")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(out, "w", **profile) as dst:
+        dst.write(data, 1)
+    out.with_suffix(".meta.json").write_text(json.dumps({
+        "source": _CLC_URL[year], "layer": _CLC_TIF[year], "year": year,
+        "aoi": aoi.name, "aoi_bbox_3067": list(aoi.bbox_3067),
+        "shape": [int(x) for x in data.shape], "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return str(out)

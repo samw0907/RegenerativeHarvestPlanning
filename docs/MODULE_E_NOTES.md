@@ -476,6 +476,37 @@ right range. Written to `data/interim/e/k_factor_catchment.tif` (and
 Next: C (`fetch_clc` + CLC reclass), then R (Panagos constant), then assemble A
 and benchmark.
 
+#### E5c - C factor (done, 2026-09-06)
+
+`syke.fetch_clc` implemented: windowed read of SYKE's national CORINE Land
+Cover 2018 20 m raster (273 MB zip) via `/vsizip//vsicurl/`, writing just the
+AOI window to a local GeoTIFF (20 s for the catchment, cached). **TASK 00 D4
+resolved:** no CLC2024/2021/2020 at the SYKE route (checked live) - CLC2018 is
+the latest. The raster carries SYKE's own 49-class national scheme in the pixel
+values, decoded from the zip's `.tif.vat.dbf`; CRS is declared EPSG:25835,
+coordinate-identical to 3067, so `fetch_clc` just assigns 3067.
+
+`c_factor` in `src/e_plus_site_planning.py`: nearest-resamples the CLC class
+raster onto the target grid (categorical - nearest keeps class edges sharp),
+then maps each SYKE class value to a C value via the config table
+(`module_e_plus.rusle.c_by_clc`, all 49 classes). Values from Panagos et al.
+2015's land-cover method plus forestry context: forest 0.0015 (all substrates);
+transitional woodland/shrub 0.05 at cc 10-30%, 0.10 at cc <10% (the
+recent-clearcut proxy); natural grassland 0.05; arable 0.22; peatbog 0.01;
+bare mineral-extraction / construction 0.40; water 0.0. Unit tested (classes
+mapped onto a grid; unlisted class to default).
+
+Catchment C: 55% forest (0.0015), 29% water (0.0 - the lakes), 9% transitional
+woodland (0.05-0.10, i.e. regenerating / recent clearcut), 5% arable (0.22),
+2% built. Mean C 0.018. Low, because the catchment is mostly forest and lake;
+the erosion-relevant signal is the ~9% clearcut/transitional plus the ~5%
+arable, which is exactly what C is there to separate out. Written to
+`data/interim/e/c_factor_catchment.tif`.
+
+LS, K and C are now all on the catchment grid. Next: R (a single Panagos et al.
+2015 central-Finland constant), then assemble `A = R * K * LS * C` and benchmark
+against the Metsakeskus WCS `RUSLE-eroosiomalli` on stand-covered cells.
+
 ---
 
 ## 4. Results and what they mean

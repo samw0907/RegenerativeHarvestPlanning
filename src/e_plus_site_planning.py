@@ -491,3 +491,38 @@ def stand_coverage_mask(stands: gpd.GeoDataFrame, grid_path: str | Path) -> np.n
         return np.zeros(shape, dtype=bool)
     return rasterize(geoms, out_shape=shape, transform=transform,
                      fill=0, dtype="uint8").astype(bool)
+
+
+def c_factor(
+    clc_path: str | Path,
+    grid_path: str | Path,
+    c_by_clc: dict,
+    *,
+    c_default: float = 0.01,
+) -> np.ndarray:
+    """RUSLE C raster on `grid_path`'s grid, from a SYKE CLC2018 raster.
+
+    The CLC class raster is nearest-resampled onto the target grid (categorical,
+    so nearest keeps class edges sharp), then each pixel's SYKE class value is
+    mapped to a C value via the config lookup; unlisted values fall to
+    `c_default`. Forest classes get a very low C, recent-clearcut / transitional
+    woodland a higher one, water 0. See docs/MODULE_E_NOTES.md E5c."""
+    import rasterio
+    from rasterio.warp import Resampling, reproject
+
+    with rasterio.open(grid_path) as g:
+        dst_transform, dst_crs = g.transform, g.crs
+        dst_shape = (g.height, g.width)
+    with rasterio.open(clc_path) as src:
+        src_arr = src.read(1)
+        src_transform, src_crs, src_nodata = src.transform, src.crs, src.nodata
+
+    classes = np.zeros(dst_shape, dtype=src_arr.dtype)
+    reproject(src_arr, classes, src_transform=src_transform, src_crs=src_crs,
+              dst_transform=dst_transform, dst_crs=dst_crs,
+              resampling=Resampling.nearest, src_nodata=src_nodata, dst_nodata=0)
+
+    lut = np.full(256, c_default, dtype="float32")
+    for code, cval in c_by_clc.items():
+        lut[int(code)] = float(cval)
+    return lut[classes.astype(np.intp)]

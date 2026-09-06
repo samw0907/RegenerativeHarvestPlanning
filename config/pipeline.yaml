@@ -88,7 +88,58 @@ module_e_plus:
       67: 0.030
       70: 0.025                        # multamaa (mould)
       80: 0.025                        # liejumaa (gyttja)
-    # r_factor, c_by_clc_class added as those factors are built (R -> C)
+    c_default: 0.01                    # C for unlisted / nodata CLC pixel values
+    c_by_clc:                          # RUSLE C keyed on SYKE CLC2018 49-class pixel value (Panagos et al. 2015 land-cover method + forestry context)
+      1: 0.01                          # 111 continuous urban - sealed
+      2: 0.01                          # 112 discontinuous urban
+      3: 0.01                          # 121 commercial
+      4: 0.01                          # 121 industrial
+      5: 0.01                          # 122 road/rail
+      6: 0.01                          # 123 port
+      7: 0.01                          # 124 airport
+      8: 0.40                          # 131 mineral extraction - bare disturbed
+      9: 0.40                          # 131 open cast mine
+      10: 0.10                         # 132 dump site
+      11: 0.40                         # 133 construction site - bare
+      12: 0.01                         # 141 green urban
+      13: 0.01                         # 142 summer cottages
+      14: 0.02                         # 142 sport/leisure - grass
+      15: 0.02                         # 142 golf
+      16: 0.02                         # 142 racecourse
+      17: 0.22                         # 211 arable (Pellot)
+      18: 0.10                         # 222 fruit/berry
+      19: 0.06                         # 231 pasture
+      20: 0.06                         # 231 natural pasture
+      21: 0.22                         # 243 arable outside subsidies
+      22: 0.03                         # 244 agro-forestry
+      23: 0.0015                       # 311 broad-leaved forest / mineral
+      24: 0.0015                       # 311 broad-leaved forest / peat
+      25: 0.0015                       # 312 coniferous forest / mineral
+      26: 0.0015                       # 312 coniferous forest / peat
+      27: 0.0015                       # 312 coniferous forest / rock
+      28: 0.0015                       # 313 mixed forest / mineral
+      29: 0.0015                       # 313 mixed forest / peat
+      30: 0.0015                       # 313 mixed forest / rock
+      31: 0.05                         # 321 natural grassland
+      32: 0.03                         # 322 moors and heathland
+      33: 0.10                         # 324 transitional woodland/shrub cc <10% - open / recent clearcut
+      34: 0.05                         # 324 transitional woodland/shrub cc 10-30% / mineral
+      35: 0.05                         # 324 transitional woodland/shrub cc 10-30% / peat
+      36: 0.05                         # 324 transitional woodland/shrub cc 10-30% / rock
+      37: 0.05                         # 324 transitional woodland/shrub under power lines
+      38: 0.20                         # 331 beaches / dunes / sand
+      39: 0.01                         # 332 bare rock
+      40: 0.30                         # 333 sparsely vegetated
+      41: 0.01                         # 411 inland marsh, terrestrial
+      42: 0.0                          # 411 inland marsh, aquatic - water
+      43: 0.01                         # 412 peatbog (Avosuot)
+      44: 0.50                         # 412 peat production site - bare worked peat
+      45: 0.01                         # 421 salt marsh, terrestrial
+      46: 0.0                          # 421 salt marsh, aquatic - water
+      47: 0.0                          # 511 river - water
+      48: 0.0                          # 512 lake - water
+      49: 0.0                          # 523 sea - water
+    # r_factor added when the R factor is built
 
 module_f_connectivity:
   node_sources: [protected_areas, habitat_s10, ymparistotuki, old_stands]

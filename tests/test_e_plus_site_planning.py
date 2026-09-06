@@ -292,3 +292,37 @@ def test_stand_coverage_mask_true_only_under_polygons(tmp_path):
     assert m.dtype == bool
     assert m[0, 0] and m[0, 1]
     assert not m[5, 5]
+
+
+def test_c_factor_maps_clc_classes_onto_the_grid(tmp_path):
+    from src.e_plus_site_planning import c_factor
+
+    grid = tmp_path / "grid.tif"
+    _write_tif(grid, np.zeros((4, 4)), res=10.0)   # 40 x 40 m, origin (0, 40)
+
+    # a matching-resolution CLC raster: left half forest (25), right half clearcut (33)
+    clc = tmp_path / "clc.tif"
+    cls = np.array([[25, 25, 33, 33]] * 4, dtype="uint8")
+    with rasterio.open(clc, "w", driver="GTiff", crs="EPSG:3067",
+                       transform=from_origin(0, 40, 10, 10),
+                       width=4, height=4, count=1, dtype="uint8", nodata=0) as dst:
+        dst.write(cls, 1)
+
+    c = c_factor(clc, grid, {25: 0.0015, 33: 0.10}, c_default=0.01)
+    assert c.shape == (4, 4)
+    assert np.allclose(c[:, :2], 0.0015)
+    assert np.allclose(c[:, 2:], 0.10)
+
+
+def test_c_factor_unlisted_class_falls_to_default(tmp_path):
+    from src.e_plus_site_planning import c_factor
+
+    grid = tmp_path / "grid.tif"
+    _write_tif(grid, np.zeros((3, 3)), res=10.0)
+    clc = tmp_path / "clc.tif"
+    with rasterio.open(clc, "w", driver="GTiff", crs="EPSG:3067",
+                       transform=from_origin(0, 30, 10, 10),
+                       width=3, height=3, count=1, dtype="uint8", nodata=0) as dst:
+        dst.write(np.full((3, 3), 99, dtype="uint8"), 1)
+    c = c_factor(clc, grid, {25: 0.0015}, c_default=0.02)
+    assert np.allclose(c, 0.02)
