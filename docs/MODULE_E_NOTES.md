@@ -446,6 +446,36 @@ Next: K (soil-class lookup, rasterised from the catchment stand polygons), then
 C (`fetch_clc` + CLC reclass), then R (Panagos constant), then assemble A and
 benchmark against the Metsakeskus WCS product.
 
+#### E5b - K factor (done, 2026-09-06)
+
+`k_factor` in `src/e_plus_site_planning.py`: maps each stand polygon's
+Metsakeskus `soiltype` code to a RUSLE K value via a flat config table
+(`module_e_plus.rusle.k_by_soiltype`, 23 codes), then rasterises onto the LS
+grid. The SoilTypeType code list came from Project 1's cached KOOD V35 workbook
+notes. K values are from Panagos et al. 2014 (*Soil erodibility in Europe*)
+ranges plus Finnish context, grouped as: coarse till / coarse mineral 0.025;
+coarse sorted (glaciofluvial) 0.013; fine-textured mineral 0.043 (the
+erosion-prone class); stony 0.020; bedrock 0.005; peat 0.015; Metsakeskus's own
+"eroosioherkka" (erosion-sensitive) peat codes 64-67 0.030; mould/gyttja 0.025.
+Unit tested (code mapped, unknown code and off-polygon gap both fall to the
+default).
+
+`stand_coverage_mask` added alongside: the Metsakeskus stand layer is
+private-forest only and covers **60% of the catchment bbox grid**, so off-stand
+cells get a flat `k_default` (0.025) and their `A` is not a real derivation.
+The benchmark against Metsakeskus's RUSLE will be computed on stand-covered
+cells only, and this mask is what restricts it.
+
+Catchment K on stand-covered cells: 67% at 0.025 (coarse till - the dominant
+Finnish soil), 12% fine mineral (0.043), 12% stony, 8% peat, <1% each sorted
+coarse and rock. Mean K 0.026, which matches Panagos 2014's Finland mean
+(~0.028-0.032) - a reassuring cross-check that the class values are in the
+right range. Written to `data/interim/e/k_factor_catchment.tif` (and
+`stand_coverage_catchment.tif`).
+
+Next: C (`fetch_clc` + CLC reclass), then R (Panagos constant), then assemble A
+and benchmark.
+
 ---
 
 ## 4. Results and what they mean

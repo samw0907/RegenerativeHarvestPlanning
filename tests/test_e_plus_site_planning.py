@@ -254,3 +254,41 @@ def test_ls_factor_zeroes_nodata_cells(tmp_path):
     ls, _ = ls_factor(sp, ap)
     assert ls[2, 2] == 0.0
     assert ls[0, 0] > 0.0
+
+
+def test_k_factor_maps_soiltype_codes_and_defaults_gaps(tmp_path):
+    from shapely.geometry import Polygon
+
+    from src.e_plus_site_planning import k_factor
+
+    grid = tmp_path / "grid.tif"
+    _write_tif(grid, np.zeros((10, 10)), res=10.0)  # 100 x 100 m, origin (0, 100)
+
+    stands = gpd.GeoDataFrame(
+        {"soiltype": ["12", "20", "999"]},   # sorted-coarse, fine mineral, unknown
+        geometry=[
+            Polygon([(0, 90), (30, 90), (30, 100), (0, 100)]),    # rows 0, cols 0-2
+            Polygon([(30, 90), (60, 90), (60, 100), (30, 100)]),  # rows 0, cols 3-5
+            Polygon([(60, 90), (90, 90), (90, 100), (60, 100)]),  # rows 0, cols 6-8
+        ], crs="EPSG:3067")
+
+    k = k_factor(stands, grid, {12: 0.013, 20: 0.043}, k_default=0.025)
+    assert k[0, 1] == pytest.approx(0.013)     # soiltype 12
+    assert k[0, 4] == pytest.approx(0.043)     # soiltype 20
+    assert k[0, 7] == pytest.approx(0.025)     # unknown code -> default
+    assert k[5, 5] == pytest.approx(0.025)     # no polygon -> default
+
+
+def test_stand_coverage_mask_true_only_under_polygons(tmp_path):
+    from shapely.geometry import Polygon
+
+    from src.e_plus_site_planning import stand_coverage_mask
+
+    grid = tmp_path / "grid.tif"
+    _write_tif(grid, np.zeros((10, 10)), res=10.0)
+    stands = gpd.GeoDataFrame(
+        geometry=[Polygon([(0, 90), (20, 90), (20, 100), (0, 100)])], crs="EPSG:3067")
+    m = stand_coverage_mask(stands, grid)
+    assert m.dtype == bool
+    assert m[0, 0] and m[0, 1]
+    assert not m[5, 5]

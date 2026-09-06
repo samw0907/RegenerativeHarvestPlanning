@@ -442,3 +442,52 @@ def ls_factor(
 
     out_profile = dict(profile, dtype="float32", nodata=0.0, count=1)
     return ls.astype("float32"), out_profile
+
+
+def k_factor(
+    stands: gpd.GeoDataFrame,
+    grid_path: str | Path,
+    k_by_soiltype: dict,
+    *,
+    k_default: float = 0.025,
+) -> np.ndarray:
+    """RUSLE K raster on `grid_path`'s grid, from the Metsakeskus stand
+    polygons' `soiltype` code via the config lookup. Cells not covered by any
+    stand polygon get `k_default` (stand data is private-forest only; the K
+    surface still needs a value everywhere the benchmark covers).
+
+    Proper K comes from soil texture, which the open data does not carry - this
+    is a class-mean approximation keyed on the one distinction Metsakeskus
+    `soiltype` does make (coarse till / sorted coarse / fine mineral / stony /
+    rock / peat / erosion-sensitive peat / organic). See docs/MODULE_E_NOTES.md
+    E5b."""
+    from rasterio.features import rasterize
+
+    lut = {int(k): float(v) for k, v in k_by_soiltype.items()}
+    codes = pd.to_numeric(stands["soiltype"], errors="coerce").round()
+    kvals = codes.map(lut).fillna(k_default).to_numpy()
+
+    with rasterio.open(grid_path) as src:
+        transform, shape = src.transform, (src.height, src.width)
+
+    shapes = [(geom, float(k)) for geom, k in zip(stands.geometry, kvals) if geom is not None]
+    if not shapes:
+        return np.full(shape, k_default, dtype="float32")
+    return rasterize(shapes, out_shape=shape, transform=transform,
+                     fill=k_default, dtype="float32")
+
+
+def stand_coverage_mask(stands: gpd.GeoDataFrame, grid_path: str | Path) -> np.ndarray:
+    """Boolean raster on `grid_path`'s grid, True where a Metsakeskus stand
+    polygon exists. The RUSLE benchmark is compared only on these cells - off
+    stand land the K factor is a flat default, so `A` there is not a real
+    derivation."""
+    from rasterio.features import rasterize
+
+    with rasterio.open(grid_path) as src:
+        transform, shape = src.transform, (src.height, src.width)
+    geoms = [(g, 1) for g in stands.geometry if g is not None]
+    if not geoms:
+        return np.zeros(shape, dtype=bool)
+    return rasterize(geoms, out_shape=shape, transform=transform,
+                     fill=0, dtype="uint8").astype(bool)

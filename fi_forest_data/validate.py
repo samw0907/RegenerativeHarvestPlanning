@@ -176,6 +176,11 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
             _num(problems, rusle, "ls_exponent_m", 0, None, "module_e_plus.rusle")
             _num(problems, rusle, "ls_exponent_n", 0, None, "module_e_plus.rusle")
             _num(problems, rusle, "ls_specific_area_cap_m", 0, None, "module_e_plus.rusle")
+            _num(problems, rusle, "k_default", 0, 1, "module_e_plus.rusle")
+            kbs = rusle.get("k_by_soiltype")
+            if not isinstance(kbs, dict) or not kbs or not all(
+                    isinstance(v, (int, float)) and 0 <= v <= 1 for v in kbs.values()):
+                problems.append("module_e_plus.rusle.k_by_soiltype: expected a non-empty {code: K in 0..1} map")
 
     # --- module F: connectivity ---
     f = cfg.get("module_f_connectivity")
