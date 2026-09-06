@@ -197,6 +197,21 @@ baseline F3a ranking was already close to the robust one. Written to
 `top_decile_runs`, `robust`); per-run parameters and PC in
 `sensitivity_runs.json`.
 
+### F4 - figures and `run.py` wiring (done, 2026-09-06)
+
+`src/figures.py` gained three Module F figures (`module_f_corridor_map`,
+`module_f_robustness_hist`, `module_f_patch_dpc`), same portfolio style as the
+Module E set. `src/run.py` now runs Modules E **and** F: `run_module_f` does
+F1 (node fetch + assemble), F2 (resistance surface), F3a (patches, least-cost
+matrix, dPC, backbone corridors, per-stand score) always, and F3b (the sweep)
+only with `python -m src.run --sweep` (~30 min). Outputs go to
+`outputs/regenerative-harvest-planning/f/{run_id}/` (report.json,
+stand_connectivity_scores.gpkg, figures; plus stand_connectivity_robust.gpkg
+and sensitivity_runs.json when `--sweep`). Verified: a plain
+`python -m src.run` writes both module run directories; the F report reproduces
+the F3a numbers (2,769 nodes, 786 patches, PC 0.305, top dPC 36.4 / 34.3 /
+21.8).
+
 ---
 
 ## 4. Results and what they mean

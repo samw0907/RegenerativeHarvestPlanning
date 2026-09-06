@@ -109,3 +109,63 @@ def module_e_site_plan_bars(site_plan_gpkg: str | Path, out_path: str | Path) ->
     ax.set_title("Module E - per-stand site-plan constraint area")
     ax.invert_yaxis()
     return _finish(fig, out_path)
+
+
+def module_f_corridor_map(corridor_density_path: str | Path, nodes_gpkg: str | Path,
+                          out_path: str | Path, *, robust_gpkg: str | Path | None = None) -> str:
+    """Least-cost corridor density (log colour) with the node patches outlined
+    and, if given, the robust connectivity-priority stands overlaid."""
+    import geopandas as gpd
+    import rasterio
+
+    with rasterio.open(corridor_density_path) as src:
+        d = src.read(1).astype("float64")
+        b = src.bounds
+    d = np.where(d > 0, d, np.nan)
+    extent = (b.left, b.right, b.bottom, b.top)
+
+    fig, ax = plt.subplots(figsize=(6.6, 8.4))
+    im = ax.imshow(np.log10(d), extent=extent, cmap="magma", origin="upper")
+    gpd.read_file(nodes_gpkg).boundary.plot(ax=ax, color="#2b7a3d", linewidth=0.3)
+    if robust_gpkg is not None:
+        r = gpd.read_file(robust_gpkg)
+        r = r[r["robust"]] if "robust" in r.columns else r
+        r.plot(ax=ax, facecolor="#1f4e79", edgecolor="none", alpha=0.6)
+    cb = fig.colorbar(im, ax=ax, shrink=0.55)
+    cb.set_label("log10 corridor density")
+    ax.set_title("Module F - connectivity corridors, nodes and robust priority stands")
+    ax.set_xlabel("Easting (EPSG:3067)")
+    ax.set_ylabel("Northing (EPSG:3067)")
+    return _finish(fig, out_path)
+
+
+def module_f_robustness_hist(robust_gpkg: str | Path, out_path: str | Path) -> str:
+    """Histogram of `top_decile_runs` - how many of the sensitivity-sweep runs
+    put each stand in the top decile. The bimodal shape is the point: a stand is
+    almost always high-priority or almost never."""
+    import geopandas as gpd
+
+    tdr = gpd.read_file(robust_gpkg)["top_decile_runs"].to_numpy()
+    n_runs = int(tdr.max())
+    fig, ax = plt.subplots(figsize=(6.2, 3.8))
+    ax.hist(tdr[tdr > 0], bins=np.arange(1, n_runs + 2) - 0.5, color="#1f4e79")
+    ax.set_xlabel(f"runs (of {n_runs}) with the stand in the top decile")
+    ax.set_ylabel("stands")
+    ax.set_title("Module F - stability of the connectivity-priority ranking")
+    ax.set_yscale("log")
+    return _finish(fig, out_path)
+
+
+def module_f_patch_dpc(patches_gpkg: str | Path, out_path: str | Path, *, top_n: int = 12) -> str:
+    """Bar chart of the highest-dPC node patches (% drop in Probability of
+    Connectivity if that patch were removed)."""
+    import geopandas as gpd
+
+    p = gpd.read_file(patches_gpkg).sort_values("dpc", ascending=False).head(top_n)
+    fig, ax = plt.subplots(figsize=(6.4, 4.0))
+    ax.bar(range(len(p)), p["dpc"], color="#c0504d")
+    ax.set_xticks(range(len(p)))
+    ax.set_xticklabels([f"{a:,.0f} ha" for a in p["area_ha"]], rotation=45, ha="right", fontsize=7)
+    ax.set_ylabel("dPC (% loss of network connectivity if removed)")
+    ax.set_title(f"Module F - top {top_n} node patches by connectivity importance")
+    return _finish(fig, out_path)

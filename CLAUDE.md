@@ -120,6 +120,14 @@ of stand area), E5 (RUSLE — LS/K/C/R built, benchmarked against Metsäkeskus's
 product which turned out to be an LS-dominated terrain index), E6 (full-AOI
 16 m RUSLE × buffer cross-reference), E7 (deadwood aggregate, ~0.39 Mm³
 standing), E8 (per-stand site-plan record, 168,026 stands), E9 (`figures.py`
-and a Module-E `run.py`). All in `docs/MODULE_E_NOTES.md`; `python -m src.run`
-writes `outputs/.../e/{run_id}/`. Next: Module F (biodiversity connectivity),
-then the README.
+and a Module-E `run.py`). All in `docs/MODULE_E_NOTES.md`.
+
+**Module F complete (2026-09-06).** F1 (node assembly — 2,769 nodes from
+protected areas / §10 habitats / ympäristötuki / old stands; resolves TASK 00
+D4), F2 (resistance surface from stand age/structure/species + CLC land cover),
+F3a (least-cost connectivity — 786 patches, dPC patch importance, backbone
+corridors, per-stand priority score), F3b (20-run sensitivity sweep → robust
+set of 3,783 stands / 8,546 ha; PC itself swings 0.20–0.41 but the ranking is
+stable), F4 (figures + `run.py` wiring). All in `docs/MODULE_F_NOTES.md`.
+`python -m src.run` writes `outputs/.../{e,f}/{run_id}/`; add `--sweep` for
+F3b. Next: the README.
