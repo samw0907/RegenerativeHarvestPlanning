@@ -60,6 +60,7 @@ module_e_plus:
                                        # the high-fidelity, validated demonstration.
   rusle:                               # DERIVE AND BENCHMARK vs Metsakeskus WCS "RUSLE-eroosiomalli" (2 m, t/ha/yr)
     benchmark_layer: RUSLE-eroosiomalli
+    r_factor: 300.0                    # MJ mm ha-1 h-1 yr-1. Spatial constant (Panagos et al. 2015 Scandinavia-low; Finnish RUSLE studies e.g. Eurajoki use ~300). Scalar - does not affect the benchmark's spatial agreement.
     ls_exponent_m: 0.4                 # Moore & Burch (1986) unit-stream-power LS: A_s exponent
     ls_exponent_n: 1.3                 # slope exponent
     ls_specific_area_cap_m: 100.0      # cap on upslope area per contour width - LS is hillslope wash, not channel flow

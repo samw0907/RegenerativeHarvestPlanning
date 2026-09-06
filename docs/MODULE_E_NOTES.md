@@ -507,6 +507,35 @@ LS, K and C are now all on the catchment grid. Next: R (a single Panagos et al.
 2015 central-Finland constant), then assemble `A = R * K * LS * C` and benchmark
 against the Metsakeskus WCS `RUSLE-eroosiomalli` on stand-covered cells.
 
+#### E5d - R factor and assembly (done, 2026-09-06)
+
+**R = 300** MJ mm ha-1 h-1 yr-1, config `module_e_plus.rusle.r_factor`, a
+spatial constant. Panagos et al. 2015 puts Scandinavia at the low end of
+Europe, and published Finnish RUSLE applications (e.g. the Eurajoki-watershed
+study) use R ~= 299-307. R is a scalar: it sets the absolute t/ha/yr level but
+does not touch the spatial pattern, so it does not affect the benchmark's
+spatial-agreement statistics - only the absolute bias, which will also reflect
+whatever R Metsakeskus used.
+
+`assemble_rusle` in `src/e_plus_site_planning.py`: element-wise
+`A = R * K * LS * C * P`, P = 1 (forestry, no support practices). Unit tested.
+
+Catchment A, stand-covered cells: **mean 0.10, median 0.009, p90 0.12, p99 1.9,
+max 62 t/ha/yr**; 1.2% of cells above 1 t/ha/yr, 0.06% above 5. These are very
+low, which is correct for flat boreal forest - continuous ground cover, gentle
+terrain (D1: slope median 1.55 deg), low erosivity. The median is driven by
+flat forest cells (LS ~0.13, K ~0.025, C 0.0015 -> A ~0.0015); the thin upper
+tail is steep cells that also carry fine mineral soil (K 0.043) and a
+clearcut / arable C (0.10-0.22). Published Finnish forest-land erosion is
+similarly sub-1 t/ha/yr with clearcut / road / ditch-bank hotspots at a few
+t/ha/yr, so the shape is plausible. Written to
+`data/interim/e/A_ours_catchment.tif`.
+
+Next, and the last RUSLE step: fetch Metsakeskus's `RUSLE-eroosiomalli` via WCS
+(`metsakeskus.fetch_raster`, still a stub) and compare against A on the
+stand-covered cells - spatial correlation, bias, and the honesty note that both
+sides share the NLS 2 m DEM.
+
 ---
 
 ## 4. Results and what they mean

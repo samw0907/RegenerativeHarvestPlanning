@@ -326,3 +326,16 @@ def test_c_factor_unlisted_class_falls_to_default(tmp_path):
         dst.write(np.full((3, 3), 99, dtype="uint8"), 1)
     c = c_factor(clc, grid, {25: 0.0015}, c_default=0.02)
     assert np.allclose(c, 0.02)
+
+
+def test_assemble_rusle_is_elementwise_product():
+    from src.e_plus_site_planning import assemble_rusle
+
+    ls = np.array([[1.0, 2.0], [0.0, 4.0]])
+    k = np.array([[0.02, 0.04], [0.03, 0.01]])
+    c = np.array([[0.1, 0.0015], [0.5, 0.05]])
+    a = assemble_rusle(ls, k, c, r_factor=300.0)
+    assert a.dtype == np.float32
+    assert a[0, 0] == pytest.approx(300.0 * 0.02 * 1.0 * 0.1)
+    assert a[1, 0] == pytest.approx(0.0)          # LS 0 -> A 0
+    assert a[0, 1] == pytest.approx(300.0 * 0.04 * 2.0 * 0.0015)

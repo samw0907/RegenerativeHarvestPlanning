@@ -526,3 +526,20 @@ def c_factor(
     for code, cval in c_by_clc.items():
         lut[int(code)] = float(cval)
     return lut[classes.astype(np.intp)]
+
+
+def assemble_rusle(
+    ls: np.ndarray,
+    k: np.ndarray,
+    c: np.ndarray,
+    *,
+    r_factor: float,
+    p_factor: float = 1.0,
+) -> np.ndarray:
+    """RUSLE annual soil loss `A = R * K * LS * C * P` (t/ha/yr), element-wise
+    over three factor grids that must share a shape. R is a scalar constant
+    (see the R decision in docs/MODULE_E_NOTES.md E5), P is 1 for forestry
+    (no support practices). Returns float32."""
+    a = float(r_factor) * float(p_factor) * (
+        np.asarray(k, "float64") * np.asarray(ls, "float64") * np.asarray(c, "float64"))
+    return a.astype("float32")

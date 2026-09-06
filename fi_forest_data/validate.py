@@ -173,6 +173,7 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
         else:
             if not isinstance(rusle.get("benchmark_layer"), str) or not rusle.get("benchmark_layer"):
                 problems.append("module_e_plus.rusle.benchmark_layer: expected a non-empty string")
+            _num(problems, rusle, "r_factor", 0, None, "module_e_plus.rusle")
             _num(problems, rusle, "ls_exponent_m", 0, None, "module_e_plus.rusle")
             _num(problems, rusle, "ls_exponent_n", 0, None, "module_e_plus.rusle")
             _num(problems, rusle, "ls_specific_area_cap_m", 0, None, "module_e_plus.rusle")
