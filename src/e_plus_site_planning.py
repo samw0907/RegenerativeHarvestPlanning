@@ -605,3 +605,161 @@ def rusle_benchmark(
     for label, path in (also_compare or {}).items():
         out[label] = _stats(_resample_onto(path, transform, crs, shape), label)
     return out
+
+
+def slope_degrees(dem_path: str | Path) -> tuple[np.ndarray, dict]:
+    """Slope in degrees from a DEM, via a central-difference gradient. Nodata
+    cells and the resulting NaNs are set to 0. Returns (array, write_profile)."""
+    with rasterio.open(dem_path) as src:
+        z = src.read(1).astype("float64")
+        nd, cell, profile = src.nodata, abs(src.transform.a), src.profile
+    if nd is not None:
+        z = np.where(z == nd, np.nan, z)
+    gy, gx = np.gradient(z, cell)
+    slope = np.degrees(np.arctan(np.hypot(gx, gy)))
+    slope = np.nan_to_num(slope, nan=0.0)
+    return slope.astype("float32"), dict(profile, dtype="float32", nodata=0.0, count=1)
+
+
+def _sample_array_at_points(arr: np.ndarray, transform, xs, ys) -> np.ndarray:
+    """Nearest-pixel sample of a 2-D array at map coordinates. Out-of-bounds
+    points return NaN."""
+    inv = ~transform
+    col, row = inv * (np.asarray(xs, "float64"), np.asarray(ys, "float64"))
+    col = np.round(col).astype(int)
+    row = np.round(row).astype(int)
+    h, w = arr.shape
+    ok = (row >= 0) & (row < h) & (col >= 0) & (col < w)
+    out = np.full(len(np.atleast_1d(xs)), np.nan, dtype="float64")
+    out[ok] = arr[row[ok], col[ok]]
+    return out
+
+
+def _stream_mask_from_raster(path: str | Path) -> tuple[np.ndarray, object, float]:
+    """Boolean stream mask from an ExtractStreams-style raster. WhiteboxTools
+    writes stream cells as a positive value and background as nodata (here
+    1.0 / -32768.0), so a plain `.astype(bool)` would count the negative
+    nodata as True - mask on `> 0` and `!= nodata` instead. Returns
+    (mask, transform, resolution_m)."""
+    with rasterio.open(path) as src:
+        arr = src.read(1)
+        nod = src.nodata
+        transform, res = src.transform, abs(src.transform.a)
+    mask = np.isfinite(arr) & (arr > 0)
+    if nod is not None:
+        mask &= arr != nod
+    return mask, transform, res
+
+
+def rusle_buffer_crossref(
+    a_path: str | Path,
+    stream_raster_path: str | Path,
+    buffer_widths_m: list[float],
+    *,
+    high_percentile: float = 90.0,
+) -> list[dict]:
+    """"Where do buffers matter most": for each buffer width, how much of the
+    derived-stream buffer zone sits on high-erosion terrain. "High erosion" is
+    RUSLE `A` at or above its `high_percentile` over all positive cells - a
+    percentile, not an absolute t/ha/yr cut, since the Metsakeskus benchmark
+    (E5e) left the absolute scale unresolved. `a_path` and `stream_raster_path`
+    must share the grid."""
+    with rasterio.open(a_path) as src:
+        a = src.read(1).astype("float64")
+    streams, _, res = _stream_mask_from_raster(stream_raster_path)
+
+    positive = a[np.isfinite(a) & (a > 0)]
+    thr = float(np.percentile(positive, high_percentile)) if positive.size else 0.0
+    high = np.isfinite(a) & (a >= thr)
+    dist = distance_to_features_m(streams, res)
+    cell_ha = res * res / _HA_TO_M2
+
+    rows = []
+    for w in buffer_widths_m:
+        buf = dist <= w
+        n_buf = int(buf.sum())
+        rows.append({
+            "buffer_width_m": w,
+            "buffer_ha": round(n_buf * cell_ha, 1),
+            "buffer_on_high_erosion_ha": round(float((buf & high).sum()) * cell_ha, 1),
+            "share_of_buffer_high_erosion": round(float((buf & high).sum()) / max(n_buf, 1), 3),
+            "high_erosion_threshold_A": round(thr, 3),
+        })
+    return rows
+
+
+def deadwood_aggregate(stands: gpd.GeoDataFrame, cfg_e: dict) -> dict:
+    """The aggregate deadwood statement (D2 decision): private-forest area x a
+    published Luke VMI regional dead-wood volume, reported alongside the Plus
+    stems/ha target rather than combined with it - the two are different units
+    and no sourced avg-snag-volume constant exists to convert between them."""
+    area_ha = float(pd.to_numeric(stands["area"], errors="coerce").fillna(0.0).sum())
+    total = cfg_e["deadwood_vmi_m3_per_ha"]
+    standing = total * cfg_e["deadwood_vmi_standing_share"]
+    return {
+        "private_forest_area_ha": round(area_ha, 1),
+        "vmi_zone": cfg_e["deadwood_vmi_zone"],
+        "vmi_deadwood_m3_per_ha_total": total,
+        "vmi_deadwood_m3_per_ha_standing": round(standing, 2),
+        "estimated_total_deadwood_m3": round(area_ha * total, 0),
+        "estimated_standing_deadwood_m3": round(area_ha * standing, 0),
+        "plus_target_dead_trees_per_ha": cfg_e["deadwood_trees_per_ha"],
+        "note": ("regional VMI average substituted for absent per-stand data; "
+                 "Plus target is stems/ha, the VMI figure is volume/ha - not combined"),
+    }
+
+
+def build_site_plan(
+    stands: gpd.GeoDataFrame,
+    habitats: gpd.GeoDataFrame,
+    stream_raster_path: str | Path,
+    cfg_e: dict,
+    cfg_d3: dict,
+) -> gpd.GeoDataFrame:
+    """One row per stand: the Module E constraints joined together - CCF
+    prescription (E2), root-rot obligation (D3), nearest §10 habitat and
+    setback flag (E4), nearest derived stream and buffer flag (E1), and a
+    plain harvest-timing note. `stands` needs geometry, area, soiltype,
+    proportionpine, proportionspruce."""
+    from src.d3_rootrot_rules import is_peat_soil, species_soil_rule
+
+    n = len(stands)
+    area_ha = pd.to_numeric(stands["area"], errors="coerce").fillna(0.0).to_numpy()
+    pine = pd.to_numeric(stands["proportionpine"], errors="coerce").fillna(0.0).to_numpy()
+    spruce = pd.to_numeric(stands["proportionspruce"], errors="coerce").fillna(0.0).to_numpy()
+    peat = np.asarray(is_peat_soil(stands["soiltype"]), dtype=bool)
+
+    rootrot = np.asarray(species_soil_rule(peat, pine, spruce, cfg_d3), dtype=bool)
+    ccf = select_ccf_peatland(stands, cfg_e["ccf_peatland"]).to_numpy()
+
+    idx = stands.reset_index(drop=True)
+    idx["_r"] = np.arange(n)
+    hp = gpd.sjoin_nearest(idx[["_r", "geometry"]], habitats[["geometry"]],
+                           how="left", distance_col="hab_m")
+    hab_m = (hp.sort_values("hab_m").drop_duplicates("_r").set_index("_r")
+             .reindex(range(n))["hab_m"].to_numpy())
+
+    streams, transform, res = _stream_mask_from_raster(stream_raster_path)
+    stream_dist = distance_to_features_m(streams, res)
+    cx = stands.geometry.centroid.x.to_numpy()
+    cy = stands.geometry.centroid.y.to_numpy()
+    strm = _sample_array_at_points(stream_dist, transform, cx, cy)
+
+    max_setback = max(cfg_e["habitat_setback_widths_m"])
+    max_buffer = max(cfg_e["buffer_widths_m"])
+    needs_frozen = peat | ccf
+
+    return gpd.GeoDataFrame({
+        "area_ha": np.round(area_ha, 3),
+        "is_peat": peat,
+        "spruce_share": np.round(spruce, 3),
+        "rootrot_obligation": rootrot,
+        "ccf_prescribed": ccf,
+        "nearest_habitat_m": np.round(hab_m, 1),
+        "within_habitat_setback": hab_m <= max_setback,
+        "nearest_derived_stream_m": np.round(strm, 1),
+        "within_stream_buffer": strm <= max_buffer,
+        "harvest_timing": np.where(needs_frozen, "frozen-ground / winter preferred",
+                                   "no trafficability restriction"),
+        "geometry": stands.geometry.values,
+    }, crs=stands.crs)

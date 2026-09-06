@@ -576,14 +576,142 @@ valid *terrain erosion-risk* flag for that (which is what the water-protection
 overlay needs), and can be consumed at AOI scale. Our C-modulated A additionally
 distinguishes where a *new* clearcut would raise erosion risk near a stream -
 arguably the more useful lens for harvest planning - but only exists at the
-2 m catchment scale. The buffer cross-reference (E6, next) will use the
-Metsakeskus product at the channel-network scale.
+2 m catchment scale. The buffer cross-reference (E6, next) uses a full-AOI
+16 m RUSLE (see E6).
+
+### E6 - RUSLE x waterway-buffer cross-reference (done, 2026-09-06)
+
+"Cross-reference RUSLE to flag where buffers matter most." The Metsakeskus
+product is 2 m and would need ~380 WCS tiles for the full 3,400 km2 AOI, so
+this reuses the pieces already built to compute a **full-AOI RUSLE at 16 m**:
+`slope_degrees` (central-difference gradient on the 16 m DEM), `ls_factor` on
+that plus the D8 flow accumulation from E1, `k_factor` from the full-AOI
+stands, `c_factor` from a full-AOI CLC window, `assemble_rusle`. E5e showed the
+Metsakeskus product is essentially our LS, so a 16 m LS-driven `A` is a fair
+stand-in for the terrain-erosion flag; the C term additionally down-weights
+intact forest.
+
+Full-AOI 16 m A: median 0.011, mean 0.17, p90 0.40, p99 2.5, max 83 t/ha/yr -
+same shape and magnitude as the 2 m catchment run.
+
+`rusle_buffer_crossref`: for each buffer width, how much of the derived-stream
+buffer zone sits on "high-erosion" terrain, defined as `A` at or above its
+p90 (0.40 t/ha/yr here - a relative top-decile flag, since E5e left the
+absolute scale open).
+
+| stream network | 30 m buffer (ha) | of which high-erosion (ha) | share |
+|---|---|---|---|
+| 0.5 ha (all small streams + ditches) | 164,822 | 12,554 | 7.6% |
+| 2.0 ha | 87,622 | 5,374 | 6.1% |
+| 10.0 ha (major streams only) | 41,433 | 2,027 | 4.9% |
+
+**Bug caught and fixed during this step.** The first run returned a buffer area
+of exactly 340,000 ha (the whole AOI) for every width. Cause: WhiteboxTools'
+`ExtractStreams` writes stream cells as `1.0` and background as nodata
+`-32768.0`, and `.astype(bool)` counts the negative nodata as True - so the
+distance transform saw "stream everywhere". Fixed with `_stream_mask_from_raster`
+(`> 0` and `!= nodata`), regression-tested. The same bug was in the site-plan
+stream column and is fixed there too.
+
+**Reading.** ~5-8% of the waterway buffer zone coincides with the top decile of
+erosion-prone terrain, and that share rises as the stream network gets denser
+(more small headwater channels in steeper positions) and as the buffer widens
+(reaching further upslope). In absolute terms erosion is low everywhere here
+(p90 A = 0.40 t/ha/yr), so this is "where within a low-erosion landscape the
+buffer and the erosion-prone ground line up", a prioritisation flag, not a
+soil-loss alarm.
+
+### E7 - deadwood aggregate (done, 2026-09-06)
+
+`deadwood_aggregate` - the D2-decision statement, no per-stand map. Private-
+forest area 235,077 ha x the published Etela-Suomi VMI2022 dead-wood volume
+(5.5 m3/ha total, of which ~30% standing) gives an estimated **~1.29 million m3
+of dead wood across the supply area, ~0.39 million m3 of it standing**. The
+Plus 2030 target (>= 20 dead trees/ha) is reported alongside, not combined -
+stems/ha and m3/ha are different units and no sourced average-snag-volume
+constant exists to bridge them (see E5 2.1 / TASK 00 D2).
+
+### E8 - per-stand site-plan record (done, 2026-09-06)
+
+`build_site_plan` joins the Module E constraints into one row per stand
+(168,026 stands, written to `site_plan_aoi.gpkg`): CCF prescription (E2),
+root-rot obligation (D3 `species_soil_rule`), nearest S10 habitat + setback
+flag (E4), nearest derived stream + buffer flag (E1), and a plain
+harvest-timing note (frozen-ground preferred on peat / CCF stands, else
+unrestricted).
+
+| flag | stands | stand area (ha) | % of stand area |
+|---|---|---|---|
+| root-rot stump-treatment obligation | 119,600 | 176,412 | 75% |
+| CCF prescribed (lush drained spruce peat) | 1,581 | 1,674 | 0.7% |
+| within 30 m of a S10 habitat | 10,712 | 15,013 | 6.4% |
+| within 30 m of a derived stream (0.5 ha net) | 77,075 | 100,443 | 43% |
+| frozen-ground / winter felling preferred | 21,651 | - | - |
+
+Every figure cross-checks against the standalone module results (D3's ~70-75%
+root-rot trigger, E2's 1,674 ha, E4's 15,013 ha). Nearest-stream distance:
+median 32 m, mean 36 m, max 208 m - consistent with the 0.5 ha network's
+~11 km/km2 density.
+
+### E9 - `figures.py` and `run.py` (done, 2026-09-06)
+
+`src/figures.py` implemented for Module E: `module_e_buffer_capture` (grouped
+bars, derived vs mapped 30 m buffer area by threshold), `module_e_rusle_map`
+(full-AOI 16 m RUSLE A on a log colour scale with the derived stream network
+overlaid, decimated for poster scale), `module_e_site_plan_bars` (stand area
+per constraint flag). Portfolio style: Agg backend, English labels, CC BY 4.0
+attribution in the caption, no emojis - matches Project 1's `figures.py`.
+
+`src/run.py` implemented as a Module E orchestrator: validates config, resolves
+the AOI, checks the prerequisite interim rasters exist (errors with a pointer
+to this document if not), runs every fast Module E analysis
+(`buffer_comparison` x5 thresholds, `ccf_area_summary`, `ccf_rootrot_conflict`,
+`conflict_free_felling_window`, `habitat_proximity`, `rusle_benchmark`,
+`rusle_buffer_crossref`, `deadwood_aggregate`, `build_site_plan`) from cached
+fetches, and writes `outputs/regenerative-harvest-planning/e/{run_id}/` with
+`report.json`, `site_plan.gpkg`, three figures and `run_metadata.json`. The
+expensive derivations (2 m DEM fetch, 16 m channel network, RUSLE factor
+rasters) stay as documented prerequisites in `data/interim/e/`, the same way
+Project 1 ran its modules from per-step scripts rather than one monolithic
+entry point. Modules D and F are not wired into `run.py` yet.
+
+Verified: `python -m src.run` produces the run directory; `report.json` values
+match the standalone runs above.
 
 ---
 
 ## 4. Results and what they mean
 
-(not yet built)
+Module E turns the Metsa Group Plus measures into open-data-derived numbers for
+one mill procurement area (the ~235,000 ha of private managed forest inside the
+3,400 km2 Central Finland AOI):
+
+- **Small streams mapped hydrography misses.** The derived channel network's
+  30 m buffer covers 21,000-170,000 ha depending on the waterway-class
+  threshold; against NLS mapped hydrography's own 30 m buffer (74,000 ha), the
+  *additional* area ranges from ~21,000 ha (major channels only, the defensible
+  lower bound) to ~114,000 ha (all small streams and drainage ditches, an
+  inclusive upper bound). Reported as a threshold range, not one headline
+  number.
+- **CCF-on-peatland is a small, specific target.** ~1,674 ha of lush drained
+  spruce peatland - 7.9% of drained peatland, 0.7% of the supply area - where
+  Plus prescribes continuous cover instead of clearcut. Small because spruce
+  mires are the uncommon fertile minority of Finnish peatland, not a data gap.
+- **The CCF prescription and the root-rot obligation target the same stands.**
+  100% overlap by construction (both key on spruce >= 0.5), and the felling
+  season that satisfies both - frozen winter ground - is ~106 days/yr, down
+  modestly (with a 2010s dip) over the FMI record.
+- **S10 habitat setbacks touch ~6% of the supply area**, mostly water-feature
+  habitats; the footprint barely grows from a 10 m to a 30 m setback.
+- **Erosion is low throughout** (p90 RUSLE A = 0.4 t/ha/yr); the RUSLE
+  cross-reference is a within-landscape prioritisation flag - 5-8% of the
+  waterway buffer zone sits on the erosion-prone top decile.
+- **Deadwood:** ~1.29 Mm3 total / ~0.39 Mm3 standing across the supply area
+  from the regional VMI average; the Plus stems/ha target is stated alongside,
+  not converted.
+
+The per-stand site plan (`site_plan_aoi.gpkg`) carries all of these as flags on
+each of the 168,026 stands.
 
 ---
 
@@ -609,3 +737,15 @@ Metsakeskus product at the channel-network scale.
   built to answer, but the results writeup should name the network as "small
   streams and drainage features" at the wet end, not claim it is purely
   natural channels mapped hydrography failed to capture.
+- E6's full-AOI RUSLE is 16 m, not the 2 m of the E5 catchment derivation, and
+  its "high erosion" flag is a within-AOI p90 percentile, not an absolute
+  t/ha/yr threshold (E5e left the Metsakeskus product's absolute scale
+  unresolved). It flags relative prioritisation, not soil-loss exceedance.
+- E8's site-plan harvest-timing column is a coarse two-value note (peat / CCF
+  -> frozen-ground preferred, else unrestricted), not a per-stand workable-day
+  count. A real per-stand window would need the D2 workability surface sampled
+  at each stand; the aggregate window is in E3 instead, and per-stand variation
+  across one AOI with one FMI station is negligible (see E3).
+- The site-plan stream distance is to the 0.5 ha derived network (the most
+  inclusive, ditch-inclusive one); `within_stream_buffer` at 43% of stand area
+  reflects that choice. A coarser threshold would shrink it.

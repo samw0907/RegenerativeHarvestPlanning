@@ -357,3 +357,68 @@ def test_rusle_benchmark_correlations_on_synthetic_rasters(tmp_path):
     assert out["our_A"]["n"] >= 1590   # a few edge cells may drop on resample
     assert out["our_A"]["spearman_r"] > 0.95
     assert 80 < out["our_A"]["median_ratio_mk_over_x"] < 160
+
+
+def test_slope_degrees_on_a_known_planar_ramp(tmp_path):
+    from src.e_plus_site_planning import slope_degrees
+
+    # z rises 1 m per 10 m eastward -> slope = atan(0.1) = 5.71 deg
+    z = np.tile(np.arange(6, dtype="float64"), (6, 1))  # +1 per column
+    dem = tmp_path / "dem.tif"
+    _write_tif(dem, z, res=10.0)
+    slope, prof = slope_degrees(dem)
+    assert prof["dtype"] == "float32"
+    assert np.allclose(slope[2:4, 2:4], np.degrees(np.arctan(0.1)), atol=1e-3)
+
+
+def test_deadwood_aggregate_multiplies_area_by_regional_volume():
+    from src.e_plus_site_planning import deadwood_aggregate
+
+    stands = gpd.GeoDataFrame({"area": [100.0, 400.0]},
+                              geometry=[Point(0, 0), Point(1, 1)], crs="EPSG:3067")
+    cfg_e = {"deadwood_vmi_m3_per_ha": 5.5, "deadwood_vmi_standing_share": 0.3,
+             "deadwood_vmi_zone": "etela_suomi", "deadwood_trees_per_ha": 20}
+    out = deadwood_aggregate(stands, cfg_e)
+    assert out["private_forest_area_ha"] == pytest.approx(500.0)
+    assert out["estimated_total_deadwood_m3"] == pytest.approx(2750.0)
+    assert out["estimated_standing_deadwood_m3"] == pytest.approx(825.0)
+    assert out["plus_target_dead_trees_per_ha"] == 20
+
+
+def test_rusle_buffer_crossref_high_erosion_share(tmp_path):
+    from src.e_plus_site_planning import rusle_buffer_crossref
+
+    # 10x10, 10 m grid. A: left half low (1.0), right half high (100.0).
+    a = np.full((10, 10), 1.0)
+    a[:, 5:] = 100.0
+    ap = tmp_path / "a.tif"
+    _write_tif(ap, a, res=10.0)
+    # stream down column 4; a 20 m buffer reaches columns 2-6, straddling the split
+    streams = np.zeros((10, 10), dtype="float64")
+    streams[:, 4] = 1.0
+    sp = tmp_path / "s.tif"
+    _write_tif(sp, streams, res=10.0)
+
+    rows = {r["buffer_width_m"]: r for r in rusle_buffer_crossref(ap, sp, [10, 20], high_percentile=90.0)}
+    # p90 of A is 100 -> "high" = the right half
+    assert rows[10]["buffer_ha"] == pytest.approx(0.3)   # cols 3,4,5
+    assert rows[10]["buffer_on_high_erosion_ha"] == pytest.approx(0.1)  # col 5 only
+    assert rows[20]["share_of_buffer_high_erosion"] == pytest.approx(0.4)  # cols 5,6 of 2-6
+
+
+def test_stream_mask_ignores_whitebox_negative_nodata(tmp_path):
+    from src.e_plus_site_planning import _stream_mask_from_raster
+
+    # WhiteboxTools ExtractStreams convention: 1.0 = stream, -32768.0 = background
+    arr = np.full((5, 5), -32768.0)
+    arr[:, 2] = 1.0
+    p = tmp_path / "streams.tif"
+    with rasterio.open(p, "w", driver="GTiff", crs="EPSG:3067",
+                       transform=from_origin(0, 50, 10, 10),
+                       width=5, height=5, count=1, dtype="float32", nodata=-32768.0) as dst:
+        dst.write(arr.astype("float32"), 1)
+
+    mask, _, res = _stream_mask_from_raster(p)
+    assert res == 10.0
+    assert mask[:, 2].all()
+    assert not mask[:, [0, 1, 3, 4]].any()

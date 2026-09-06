@@ -110,6 +110,16 @@ surface), D3 (root-rot rule engine, validated against real stand data) and the
 D-validation step (declared harvest timing vs predicted workability — an
 honest negative/inconclusive result, traced to `DECLARATIONARRIVALDATE` being
 an administrative timestamp rather than a felling date, not a model failure)
-are all built, tested and written up in `docs/MODULE_D_NOTES.md`. Decision D2
-(Module E deadwood deficit) is resolved — see `docs/TASK_00_FINDINGS.md`.
-Next: Module E (Metsä Group Plus site planning).
+are all built, tested and written up in `docs/MODULE_D_NOTES.md`.
+
+**Module E complete (2026-09-06).** E1 (full-AOI derived stream network at
+16 m + buffer comparison vs mapped hydrography), E2 (peatland CCF prescription,
+~1,674 ha), E3 (CCF-vs-root-rot conflict overlay — 100% structural overlap +
+the ~106-day/yr conflict-free felling window), E4 (§10 habitat proximity, ~6%
+of stand area), E5 (RUSLE — LS/K/C/R built, benchmarked against Metsäkeskus's
+product which turned out to be an LS-dominated terrain index), E6 (full-AOI
+16 m RUSLE × buffer cross-reference), E7 (deadwood aggregate, ~0.39 Mm³
+standing), E8 (per-stand site-plan record, 168,026 stands), E9 (`figures.py`
+and a Module-E `run.py`). All in `docs/MODULE_E_NOTES.md`; `python -m src.run`
+writes `outputs/.../e/{run_id}/`. Next: Module F (biodiversity connectivity),
+then the README.
