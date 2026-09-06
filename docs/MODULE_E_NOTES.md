@@ -244,6 +244,67 @@ being ditch-dominated. Reporting the full table, not a cherry-picked row, is
 the point - the same sensitivity-sweep discipline Module F's connectivity work
 is already committed to.
 
+### E2 - peatland continuous-cover prescription (done, 2026-09-06)
+
+`select_ccf_peatland` and `ccf_area_summary` in `src/e_plus_site_planning.py`:
+the Plus "lush drained spruce-dominated peatland" category as a four-way filter
+on the Metsakeskus stand layer, all fields read directly (same conventions as
+D3): `soiltype >= 60` (peat/organic), `fertilityclass <= 3`
+(lehto..mustikkaturvekangas), `drainagestate in {7, 8, 9}`
+(ojikko/muuttuma/turvekangas - the drained-mire transformation stages), and
+`proportionspruce >= 0.5`. The fertility cut is the one genuine judgement call
+- strict "reheva" is `<= 2`, but the practical CCF-on-spruce-peat guidance
+(Tapio) covers down to mustikkaturvekangas (`<= 3`), so `<= 3` is the config
+default and `<= 2` is reported alongside it, not buried. All parameters are in
+`config/pipeline.yaml` `module_e_plus.ccf_peatland`; unit tested on synthetic
+stands including the boundary case and string/NaN coercion.
+
+**Full-AOI stand fetch:** 168,026 stands, 235,077 ha, in 351 s (WFS paging,
+cached afterwards). Note this is ~69% of the 340,000 ha AOI - the Metsakeskus
+stand layer is private forest land with a management plan, so state
+(Metsahallitus) forest and non-forest land are simply absent. Every figure
+below is "of the private-forest supply area", not the whole AOI.
+
+| quantity | area (ha) | share |
+|---|---|---|
+| total private-forest stand area | 235,077 | - |
+| peatland forest (`soiltype >= 60`) | 26,373 | 11.2% of stand area |
+| drained peatland forest | 21,124 | 80% of peatland |
+| ... spruce-dominated | 2,359 | 11% of drained peatland |
+| ... fertility `<= 3` | 5,568 | 26% of drained peatland |
+| **CCF-eligible (all four filters)** | **1,674** | **7.9% of drained peatland, 0.7% of stand area** |
+| CCF-eligible at strict fertility `<= 2` | 141 | 0.7% of drained peatland |
+
+**What binds, and why the number is small.** The result held up to a
+which-filter-dominates check: drained peatland here averages 60% pine / 23%
+spruce by volume share - it is overwhelmingly pine mire (rame), and the
+spruce-dominated subset is only 2,359 ha. Species is the hard constraint, then
+fertility (of those 2,359 ha, 1,674 ha - 71% - are also rich enough). So
+~1,700 ha of lush drained spruce peatland across the supply area is not a
+disappointing result to explain away; it reflects that spruce mires (korvet)
+are the uncommon fertile minority of Finnish peatland forest, which is exactly
+why Plus singles them out. The strict-fertility figure (141 ha) is an order of
+magnitude smaller - the `<= 3` vs `<= 2` choice genuinely moves the headline,
+hence reporting both.
+
+**On the "+30%" target.** Plus's 2030 target is "+30% share of continuous
+cover forestry in peatland forest regeneration" - a *relative* increase against
+an unpublished baseline CCF share, so "% of target met" is not computable and
+is not claimed. What E2 delivers instead is the addressable area: ~1,700 ha of
+regeneration felling that the prescription would move from clearcut to
+group/selection cutting if Plus were applied supply-area-wide, plus the
+sensitivity to the fertility-band choice.
+
+**Independent cross-reference.** Metsakeskus's own `cuttingtype_ccs` field (a
+continuous-cover silviculture proposal) is set on 264 of 168,026 stands
+(0.16%) - far sparser than our 1,674 ha eligible set and not peatland-specific,
+so not a validation, but it confirms CCS is currently a rare proposal in this
+data, consistent with Plus targeting an increase from a low base.
+
+Not yet built: §10 habitat proximity / setbacks; the D3 root-rot vs CCF
+conflict overlay; RUSLE erosion risk; the per-stand site-plan record assembly
+and `figures.py` / `run.py`.
+
 ---
 
 ## 4. Results and what they mean

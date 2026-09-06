@@ -48,6 +48,7 @@ from pathlib import Path
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import rasterio
 
 from src.d1_dtw_derive import _run, _wbt
@@ -212,3 +213,65 @@ def buffer_comparison(
             "additional_ha": round(float(additional.sum() * cell_area_ha), 1),
         })
     return results
+
+
+def select_ccf_peatland(stands: gpd.GeoDataFrame, cfg_ccf: dict) -> pd.Series:
+    """Boolean mask over `stands`: the Plus "lush drained spruce-dominated
+    peatland" prescription category - peat soil, lush-to-mesic fertility, a
+    drained-mire transformation stage (ojikko/muuttuma/turvekangas), and
+    spruce-dominated by volume share. All four attributes are read straight
+    from the Metsakeskus stand layer (`soiltype`, `fertilityclass`,
+    `drainagestate`, `proportionspruce`), same field conventions as D3."""
+    soiltype = pd.to_numeric(stands["soiltype"], errors="coerce")
+    fertility = pd.to_numeric(stands["fertilityclass"], errors="coerce")
+    drainage = pd.to_numeric(stands["drainagestate"], errors="coerce")
+    spruce = pd.to_numeric(stands["proportionspruce"], errors="coerce")
+    return (
+        (soiltype >= cfg_ccf["peat_soiltype_min"])
+        & (fertility <= cfg_ccf["fertility_class_max"])
+        & (drainage.isin(cfg_ccf["drained_states"]))
+        & (spruce >= cfg_ccf["spruce_share_min"])
+    ).fillna(False)
+
+
+def ccf_area_summary(stands: gpd.GeoDataFrame, cfg_ccf: dict) -> dict:
+    """Area breakdown for the CCF-on-peatland prescription across the AOI:
+    total stand area, peatland forest, drained peatland forest, and the
+    CCF-eligible area (the full four-way filter), each in hectares, plus the
+    eligible area at the stricter fertility <= 2 ("reheva" proper) cut so the
+    fertility-band choice's sensitivity is on the table rather than hidden.
+
+    "+30% share of CCF in peatland forest regeneration" (Plus 2030 target) is a
+    relative increase against an unpublished baseline, so this does not report
+    "% of target met" - it quantifies the addressable area (how much
+    regeneration felling the prescription would redirect from clearcut to CCF
+    if applied supply-area-wide), which is the plan's "physical implication
+    across one mill's supply area" framing."""
+    area_ha = pd.to_numeric(stands["area"], errors="coerce").fillna(0.0)
+    soiltype = pd.to_numeric(stands["soiltype"], errors="coerce")
+    drainage = pd.to_numeric(stands["drainagestate"], errors="coerce")
+
+    peat = soiltype >= cfg_ccf["peat_soiltype_min"]
+    drained_peat = peat & drainage.isin(cfg_ccf["drained_states"])
+    eligible = select_ccf_peatland(stands, cfg_ccf)
+    eligible_strict = select_ccf_peatland(stands, {**cfg_ccf, "fertility_class_max": 2})
+
+    total = float(area_ha.sum())
+
+    def _ha(mask):
+        return round(float(area_ha[mask.to_numpy()].sum()), 1)
+
+    drained_peat_ha = _ha(drained_peat)
+    elig_ha = _ha(eligible)
+    return {
+        "n_stands": int(len(stands)),
+        "total_stand_area_ha": round(total, 1),
+        "peatland_forest_ha": _ha(peat),
+        "drained_peatland_forest_ha": drained_peat_ha,
+        "ccf_eligible_ha": elig_ha,
+        "ccf_eligible_strict_fertility_ha": _ha(eligible_strict),
+        "ccf_eligible_pct_of_drained_peatland": (
+            round(100 * elig_ha / drained_peat_ha, 1) if drained_peat_ha else None),
+        "ccf_eligible_pct_of_total_forest": (
+            round(100 * elig_ha / total, 1) if total else None),
+    }

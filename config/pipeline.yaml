@@ -47,7 +47,11 @@ module_e_plus:
   deadwood_vmi_m3_per_ha: 5.5         # Luke VMI2022 update, standing + lying dead wood, Etela-Suomi
   deadwood_vmi_standing_share: 0.3    # Luke: >70% is lying (maapuu); remainder standing (pystypuu)
   biodiversity_stumps_per_ha: 10
-  ccf_peatland: {soil: peat, dominant_species: spruce, drained: true, fertility_min: lush}
+  ccf_peatland:                       # "lush drained spruce-dominated peatland" - the exact Plus prescription category
+    peat_soiltype_min: 60             # Metsakeskus soiltype >=60 = peat/organic (same boundary as D3)
+    fertility_class_max: 3            # <=3 = lehto..mustikkaturvekangas; the practical CCF-on-spruce-peat band (Tapio). Strict "reheva" alone would be <=2 - both reported
+    drained_states: [7, 8, 9]         # ojikko / muuttuma / turvekangas - the drained-mire transformation stages (state 3 is drained *mineral*, irrelevant on peat)
+    spruce_share_min: 0.5             # spruce-dominated, same convention as D3
   channel_network_resolution_m: 16    # coarser than D1's 2 m: full-AOI D-infinity at 2 m is ~850M cells,
                                        # the wrong engineering call for an illustrative buffer comparison;
                                        # 16 m matches MS-NFI's native grid, so channel buffers join MS-NFI

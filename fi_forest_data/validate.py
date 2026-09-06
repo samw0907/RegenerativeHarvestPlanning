@@ -155,8 +155,16 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
         _num(problems, e, "deadwood_vmi_m3_per_ha", 0, None, "module_e_plus")
         _num(problems, e, "deadwood_vmi_standing_share", 0, 1, "module_e_plus")
         _num(problems, e, "biodiversity_stumps_per_ha", 0, None, "module_e_plus")
-        if not isinstance(e.get("ccf_peatland"), dict):
+        ccf = e.get("ccf_peatland")
+        if not isinstance(ccf, dict):
             problems.append("module_e_plus.ccf_peatland: expected a block")
+        else:
+            _num(problems, ccf, "peat_soiltype_min", 0, None, "module_e_plus.ccf_peatland")
+            _num(problems, ccf, "fertility_class_max", 1, 8, "module_e_plus.ccf_peatland")
+            _num(problems, ccf, "spruce_share_min", 0, 1, "module_e_plus.ccf_peatland")
+            ds = ccf.get("drained_states")
+            if not isinstance(ds, list) or not ds or not all(isinstance(x, int) for x in ds):
+                problems.append("module_e_plus.ccf_peatland.drained_states: expected a non-empty list of integers")
         _num(problems, e, "channel_network_resolution_m", 0, None, "module_e_plus")
 
     # --- module F: connectivity ---

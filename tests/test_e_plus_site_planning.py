@@ -9,11 +9,19 @@ import numpy as np
 import pytest
 import rasterio
 from rasterio.transform import from_origin
-from shapely.geometry import LineString
+from shapely.geometry import LineString, Point
 
 from src.e_plus_site_planning import (
-    buffer_comparison, cells_for_distance, distance_to_features_m, rasterize_lines,
+    buffer_comparison, ccf_area_summary, cells_for_distance, distance_to_features_m,
+    rasterize_lines, select_ccf_peatland,
 )
+
+CCF_CFG = {
+    "peat_soiltype_min": 60,
+    "fertility_class_max": 3,
+    "drained_states": [7, 8, 9],
+    "spruce_share_min": 0.5,
+}
 
 
 def test_cells_for_distance_converts_metres_to_whole_cells():
@@ -90,3 +98,53 @@ def test_buffer_comparison_areas_and_additional_area(grid_path):
     assert results[30]["mapped_buffer_ha"] == pytest.approx(0.6)
     # columns 4-5 now fall in both buffers (20 cells worth = 0.2 ha overlap)
     assert results[30]["additional_ha"] == pytest.approx(0.4)
+
+
+def _stands(rows):
+    """rows: list of (soiltype, fertilityclass, drainagestate, proportionspruce, area_ha)."""
+    recs = [
+        {"soiltype": s, "fertilityclass": f, "drainagestate": d,
+         "proportionspruce": sp, "area": a, "geometry": Point(i, 0)}
+        for i, (s, f, d, sp, a) in enumerate(rows)
+    ]
+    return gpd.GeoDataFrame(recs, crs="EPSG:3067")
+
+
+def test_select_ccf_peatland_requires_all_four_conditions():
+    stands = _stands([
+        (60, 2, 9, 0.7, 10.0),   # all pass -> True
+        (50, 2, 9, 0.7, 10.0),   # mineral soil -> False
+        (60, 4, 9, 0.7, 10.0),   # too poor a site (fertility 4) -> False
+        (60, 2, 1, 0.7, 10.0),   # undrained -> False
+        (60, 2, 9, 0.3, 10.0),   # not spruce-dominated -> False
+        (61, 3, 7, 0.5, 10.0),   # boundary values all just pass -> True
+    ])
+    out = select_ccf_peatland(stands, CCF_CFG)
+    assert list(out) == [True, False, False, False, False, True]
+
+
+def test_select_ccf_peatland_coerces_strings_and_handles_missing():
+    stands = _stands([("60", "2", "9", "0.8", 5.0)])
+    stands.loc[len(stands)] = {"soiltype": None, "fertilityclass": 2,
+                               "drainagestate": 9, "proportionspruce": 0.9,
+                               "area": 5.0, "geometry": Point(9, 9)}
+    out = select_ccf_peatland(stands, CCF_CFG)
+    assert list(out) == [True, False]
+
+
+def test_ccf_area_summary_area_breakdown_and_strict_fertility():
+    stands = _stands([
+        (60, 2, 9, 0.7, 100.0),  # eligible at both fertility<=3 and <=2
+        (60, 3, 8, 0.6, 50.0),   # eligible only at fertility<=3
+        (70, 5, 7, 0.9, 20.0),   # peat + drained, but too poor -> not eligible
+        (30, 3, 1, 0.8, 30.0),   # mineral, undrained -> just contributes to total
+    ])
+    s = ccf_area_summary(stands, CCF_CFG)
+    assert s["n_stands"] == 4
+    assert s["total_stand_area_ha"] == pytest.approx(200.0)
+    assert s["peatland_forest_ha"] == pytest.approx(170.0)         # 100 + 50 + 20
+    assert s["drained_peatland_forest_ha"] == pytest.approx(170.0)
+    assert s["ccf_eligible_ha"] == pytest.approx(150.0)            # 100 + 50
+    assert s["ccf_eligible_strict_fertility_ha"] == pytest.approx(100.0)
+    assert s["ccf_eligible_pct_of_drained_peatland"] == pytest.approx(88.2, abs=0.1)
+    assert s["ccf_eligible_pct_of_total_forest"] == pytest.approx(75.0)
