@@ -301,9 +301,45 @@ continuous-cover silviculture proposal) is set on 264 of 168,026 stands
 so not a validation, but it confirms CCS is currently a rare proposal in this
 data, consistent with Plus targeting an increase from a low base.
 
-Not yet built: §10 habitat proximity / setbacks; the D3 root-rot vs CCF
-conflict overlay; RUSLE erosion risk; the per-stand site-plan record assembly
-and `figures.py` / `run.py`.
+Not yet built: §10 habitat proximity / setbacks; RUSLE erosion risk; the
+per-stand site-plan record assembly and `figures.py` / `run.py`.
+
+### E3 - the Plus CCF vs root-rot conflict overlay (done, 2026-09-06)
+
+`ccf_rootrot_conflict` in `src/e_plus_site_planning.py`: overlays the E2
+CCF-eligible set with D3's `species_soil_rule` (reused unchanged), on the
+full-AOI stand data.
+
+**Result: the overlap is total. 1,673.7 ha / 1,581 stands - 100.0% of the
+CCF-eligible area - also triggers the root-rot species/soil rule.** This is
+structural, not a coincidence to marvel at: the CCF filter requires
+spruce-dominated (`>= 0.5`) peat, and the peat-soil root-rot trigger is
+"spruce share `>= 0.5`", so every stand that passes one passes the other.
+The Plus peatland prescription and the Forest Damages Prevention Act's
+root-rot obligation are pointed at the same stand type.
+
+**Why that is a genuine tension, not just a definitional overlap.** Plus
+prescribes *continuous cover* on these sites - repeated partial/selection
+fellings that keep spruce as the perpetual dominant. Heterobasidion (butt rot)
+spreads through connected root systems and is made worse, not better, by
+successive entries on the same spruce root network; the lower-risk silvicultural
+answer to established root rot is a clearcut followed by a species change, which
+is exactly what Plus is steering these stands away from. On top of that, the
+felling-season options are boxed in from both sides: the wet, low-bearing-
+capacity peat wants frozen ground for trafficable felling (Module D), and
+frozen felling also falls outside the root-rot mandatory stump-treatment period
+(1 May - 30 Nov, D3) - so winter is the one season that resolves both
+pressures. And that window is closing: frozen-ground days per winter at the
+AOI's FMI station (101537), via D2's `frozen_ground_days`, fell from a
+1970s-90s mean of ~134 to ~110 in 2010-2023 (about 20-25 fewer days,
+consistent with D3's independently-measured +30-day warm-season lengthening).
+
+So the conflict set is not a handful of edge cases to note and move past - it
+is the entire CCF-eligible area, and the practical room to satisfy both the
+prescription and the root-rot rule is a winter window that the same warming
+trend behind the prescription's climate rationale is shrinking. Surfaced, per
+the plan, rather than glossed. Unit tested (synthetic stands, boundary
+spruce-share case).
 
 ---
 

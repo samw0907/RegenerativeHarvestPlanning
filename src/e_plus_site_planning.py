@@ -275,3 +275,37 @@ def ccf_area_summary(stands: gpd.GeoDataFrame, cfg_ccf: dict) -> dict:
         "ccf_eligible_pct_of_total_forest": (
             round(100 * elig_ha / total, 1) if total else None),
     }
+
+
+def ccf_rootrot_conflict(stands: gpd.GeoDataFrame, cfg_ccf: dict, cfg_d3: dict) -> dict:
+    """Overlay of the Plus CCF-on-peatland prescription and the D3 root-rot
+    species/soil trigger. The two pull in opposite directions: Plus keeps
+    spruce as continuous cover on these sites, while high Heterobasidion risk
+    argues against perpetuating spruce there through repeated CCF entries
+    (successive fellings on connected root systems spread butt rot more than a
+    single clearcut followed by a species change would).
+
+    Reuses D3's `species_soil_rule` unchanged. Because the CCF filter already
+    requires spruce-dominated peat and the peat-soil root-rot trigger is
+    "spruce share >= 0.5", the overlap is expected to be near-total by
+    construction - that near-totality is the finding, not a coincidence: the
+    prescription targets exactly the stand type the root-rot rule also covers."""
+    from src.d3_rootrot_rules import is_peat_soil, species_soil_rule
+
+    area_ha = pd.to_numeric(stands["area"], errors="coerce").fillna(0.0).to_numpy()
+    ccf = select_ccf_peatland(stands, cfg_ccf).to_numpy()
+
+    peat = is_peat_soil(stands["soiltype"])
+    pine = pd.to_numeric(stands["proportionpine"], errors="coerce").fillna(0.0).to_numpy()
+    spruce = pd.to_numeric(stands["proportionspruce"], errors="coerce").fillna(0.0).to_numpy()
+    rootrot = np.asarray(species_soil_rule(peat, pine, spruce, cfg_d3), dtype=bool)
+
+    conflict = ccf & rootrot
+    ccf_ha = float(area_ha[ccf].sum())
+    conflict_ha = float(area_ha[conflict].sum())
+    return {
+        "ccf_eligible_ha": round(ccf_ha, 1),
+        "ccf_eligible_and_rootrot_trigger_ha": round(conflict_ha, 1),
+        "conflict_share_of_ccf_eligible": round(conflict_ha / ccf_ha, 3) if ccf_ha else None,
+        "n_conflict_stands": int(conflict.sum()),
+    }

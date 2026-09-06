@@ -148,3 +148,23 @@ def test_ccf_area_summary_area_breakdown_and_strict_fertility():
     assert s["ccf_eligible_strict_fertility_ha"] == pytest.approx(100.0)
     assert s["ccf_eligible_pct_of_drained_peatland"] == pytest.approx(88.2, abs=0.1)
     assert s["ccf_eligible_pct_of_total_forest"] == pytest.approx(75.0)
+
+
+def test_ccf_rootrot_conflict_overlap_is_near_total_by_construction():
+    from src.e_plus_site_planning import ccf_rootrot_conflict
+
+    d3_cfg = {"mineral_soil_conifer_volume_share_min": 0.5,
+              "peat_soil_spruce_volume_share_min": 0.5}
+    stands = _stands([
+        (60, 2, 9, 0.7, 100.0),  # CCF-eligible; spruce 0.7 >= 0.5 -> root-rot trigger too -> conflict
+        (60, 3, 8, 0.5, 40.0),   # CCF-eligible at the boundary; spruce 0.5 -> trigger -> conflict
+        (30, 3, 1, 0.9, 25.0),   # mineral, undrained -> not CCF-eligible -> not counted
+    ])
+    # add proportionpine so species_soil_rule has the column it reads
+    stands["proportionpine"] = [0.2, 0.4, 0.05]
+
+    out = ccf_rootrot_conflict(stands, CCF_CFG, d3_cfg)
+    assert out["ccf_eligible_ha"] == pytest.approx(140.0)
+    assert out["ccf_eligible_and_rootrot_trigger_ha"] == pytest.approx(140.0)
+    assert out["conflict_share_of_ccf_eligible"] == pytest.approx(1.0)
+    assert out["n_conflict_stands"] == 2
