@@ -46,12 +46,21 @@ from datetime import date
 from pathlib import Path
 
 import geopandas as gpd
+import pandas as pd
 
 _VALUMA_URL = "https://wwwd3.ymparisto.fi/d3/gis_data/spesific/valumaalueet.zip"
 _ID_FIELD = {"taso4": "taso4_osat", "taso5": "taso5_osat"}
 
 _CLC_URL = {2018: "https://wwwd3.ymparisto.fi/d3/Static_rs/spesific/clc2018_fi20m.zip"}
 _CLC_TIF = {2018: "Clc2018_FI20m.tif"}
+
+_SPESIFIC = "https://wwwd3.ymparisto.fi/d3/gis_data/spesific"
+# protected-area source -> (zip, [layer(s)])
+_PA_SOURCES = {
+    "state": ("luonnonsuojelualueet_valtio.zip", ["LsAlueValtio"]),
+    "private": ("luonnonsuojelualueet_yksityinen.zip", ["LsAlueYks"]),
+    "natura": ("natura.zip", ["natura2000sac_alueet", "natura2000spa_alueet"]),
+}
 
 
 def fetch_catchment(catchment_id: str, *, level: str = "taso4",
@@ -124,3 +133,60 @@ def fetch_clc(aoi, *, year: int = 2018, cache_dir: str | Path = "data/raw",
         "shape": [int(x) for x in data.shape], "fetch_date": date.today().isoformat(),
     }, indent=2), encoding="utf-8")
     return str(out)
+
+
+def fetch_protected_areas(aoi, *, cache_dir: str | Path = "data/raw",
+                          force: bool = False) -> gpd.GeoDataFrame:
+    """State + private nature reserves + Natura 2000 (SAC and SPA) polygons
+    intersecting the AOI, merged into one GeoDataFrame with a `pa_source`
+    column ("state" / "private" / "natura_sac" / "natura_spa").
+
+    Each source zip is downloaded once to the cache and read locally with a
+    bbox filter. (The `/vsizip//vsicurl/` route works for the smaller SYKE
+    files but fails intermittently on `luonnonsuojelualueet_valtio.zip` with an
+    "HTTP response code 0", so a plain download is used.) Result cached as one
+    GeoPackage. CRS forced to EPSG:3067 - the reserve shapefiles carry an
+    untagged EUREF-FIN TM35FIN PROJCS.
+    """
+    import requests
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "syke" / f"protected_areas_{aoi.name}.gpkg"
+    if out.exists() and not force:
+        return gpd.read_file(out)
+
+    parts = []
+    for source, (zip_name, layers) in _PA_SOURCES.items():
+        zip_path = cache_dir / "syke" / zip_name
+        if not zip_path.exists() or force:
+            zip_path.parent.mkdir(parents=True, exist_ok=True)
+            resp = requests.get(f"{_SPESIFIC}/{zip_name}", timeout=600,
+                                headers={"User-Agent": "finnish-forest/0.1"})
+            resp.raise_for_status()
+            zip_path.write_bytes(resp.content)
+        url = f"/vsizip/{zip_path}"
+        for layer in layers:
+            gdf = gpd.read_file(url, layer=layer, bbox=aoi.bbox_3067)
+            if gdf.empty:
+                continue
+            tag = source
+            if source == "natura":
+                tag = "natura_sac" if "sac" in layer else "natura_spa"
+            keep = gdf.geometry.name
+            parts.append(gpd.GeoDataFrame(
+                {"pa_source": tag, "geometry": gdf[keep].values}, crs="EPSG:3067"))
+
+    if not parts:
+        merged = gpd.GeoDataFrame({"pa_source": [], "geometry": []}, crs="EPSG:3067")
+    else:
+        merged = gpd.GeoDataFrame(
+            pd.concat(parts, ignore_index=True), crs="EPSG:3067")
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    merged.to_file(out, driver="GPKG")
+    out.with_suffix(".meta.json").write_text(json.dumps({
+        "sources": {k: v[0] for k, v in _PA_SOURCES.items()},
+        "aoi": aoi.name, "aoi_bbox_3067": list(aoi.bbox_3067),
+        "n_features": int(len(merged)), "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return merged

@@ -19,5 +19,54 @@ versus which are artefacts of one parameter choice. The robust set is the
 deliverable. Presented as an exploratory prioritisation method, not a
 recommendation - the least certain of the three modules, and the README says so.
 
-No implementation yet - scaffold only.
+F1 (node assembly) implemented below.
 """
+
+from __future__ import annotations
+
+import geopandas as gpd
+import pandas as pd
+
+
+def assemble_nodes(
+    protected_areas: gpd.GeoDataFrame,
+    habitats_s10: gpd.GeoDataFrame,
+    ymparistotuki: gpd.GeoDataFrame,
+    stands: gpd.GeoDataFrame,
+    *,
+    old_stand_age_min_years: int = 120,
+) -> gpd.GeoDataFrame:
+    """Merge the four Module F node sources into one polygon GeoDataFrame with a
+    `node_type` column ("pa_state" / "pa_private" / "pa_natura_sac" /
+    "pa_natura_spa" / "habitat_s10" / "ymparistotuki" / "old_stand").
+
+    Old stands are Metsakeskus stands with `meanage >= old_stand_age_min_years`
+    (config default 120). All inputs must be EPSG:3067; only geometry and
+    node_type are kept."""
+    parts = []
+
+    if len(protected_areas):
+        pa = protected_areas.copy()
+        pa["node_type"] = "pa_" + pa["pa_source"].astype(str)
+        parts.append(pa[["node_type", "geometry"]])
+
+    if len(habitats_s10):
+        parts.append(gpd.GeoDataFrame(
+            {"node_type": "habitat_s10", "geometry": habitats_s10.geometry.values},
+            crs="EPSG:3067"))
+
+    if len(ymparistotuki):
+        parts.append(gpd.GeoDataFrame(
+            {"node_type": "ymparistotuki", "geometry": ymparistotuki.geometry.values},
+            crs="EPSG:3067"))
+
+    age = pd.to_numeric(stands.get("meanage"), errors="coerce")
+    old = stands[age >= old_stand_age_min_years]
+    if len(old):
+        parts.append(gpd.GeoDataFrame(
+            {"node_type": "old_stand", "geometry": old.geometry.values},
+            crs="EPSG:3067"))
+
+    if not parts:
+        return gpd.GeoDataFrame({"node_type": [], "geometry": []}, crs="EPSG:3067")
+    return gpd.GeoDataFrame(pd.concat(parts, ignore_index=True), crs="EPSG:3067")

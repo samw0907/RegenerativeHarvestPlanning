@@ -223,3 +223,58 @@ def fetch_raster(coverage: str, aoi, *, cache_dir: str | Path = "data/raw",
         "fetch_date": date.today().isoformat(),
     }, indent=2), encoding="utf-8")
     return str(out)
+
+
+_KEMERA_URL = ("https://avoin.metsakeskus.fi/aineistot/Kemera/Maakunta/"
+               "Kemera_{region}.zip")
+_KEMERA_ENV_LAYER = "application_stand_11_90"  # Kemera nature-management / ymparistotuki polygons (workcode 641)
+
+
+def fetch_kemera_environmental(aoi, *, region: str = "Keski-Suomi",
+                               cache_dir: str | Path = "data/raw",
+                               force: bool = False):
+    """Environmental-support / forest-nature-management polygons (ymparistotuki)
+    for the AOI, from the Metsakeskus Kemera regional GeoPackage.
+
+    `region` is the maakunta name in the download path (default "Keski-Suomi",
+    the Project 2 AOI's region). The layer is `application_stand_11_90` -
+    workcode 641, the only Kemera layer carrying `environmentmanagementtype`.
+    The 156 MB zip is downloaded once and cached; then the layer is read with a
+    bbox filter and clipped to the AOI. EPSG:3067.
+    """
+    import zipfile
+
+    import geopandas as gpd
+
+    cache_dir = Path(cache_dir)
+    zip_path = cache_dir / "metsakeskus" / f"kemera_{region}.zip"
+    out = cache_dir / "metsakeskus" / f"kemera_env_{aoi.name}.gpkg"
+    if out.exists() and not force:
+        return gpd.read_file(out)
+
+    if not zip_path.exists() or force:
+        zip_path.parent.mkdir(parents=True, exist_ok=True)
+        session = requests.Session()
+        session.headers.update({"User-Agent": _UA})
+        resp = session.get(_KEMERA_URL.format(region=region), timeout=600)
+        resp.raise_for_status()
+        zip_path.write_bytes(resp.content)
+        session.close()
+
+    with zipfile.ZipFile(zip_path) as zf:
+        gpkg_name = next(n for n in zf.namelist() if n.endswith(".gpkg"))
+        extract_dir = cache_dir / "metsakeskus" / f"kemera_{region}"
+        zf.extract(gpkg_name, extract_dir)
+    gpkg = extract_dir / gpkg_name
+
+    gdf = gpd.read_file(gpkg, layer=_KEMERA_ENV_LAYER, bbox=aoi.bbox_3067)
+    gdf = gdf.set_crs("EPSG:3067", allow_override=True)
+
+    out.parent.mkdir(parents=True, exist_ok=True)
+    gdf.to_file(out, driver="GPKG")
+    out.with_suffix(".meta.json").write_text(json.dumps({
+        "source": _KEMERA_URL.format(region=region), "layer": _KEMERA_ENV_LAYER,
+        "region": region, "aoi": aoi.name, "aoi_bbox_3067": list(aoi.bbox_3067),
+        "n_features": int(len(gdf)), "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return gdf

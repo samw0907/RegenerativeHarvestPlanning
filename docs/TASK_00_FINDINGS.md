@@ -111,6 +111,16 @@ Pintavesien virtausmalli download route; ympäristötuki field/value in the Keme
 GPKG; CLC2024 release; confirm a 32766 pixel appears in-AOI when MS-NFI is first
 pulled; P1 SE FMI station fmisid list for Module C1.
 
+**Resolved during the build:**
+- **ympäristötuki (2026-09-06)** — Kemera regional GPKG
+  (`aineistot/Kemera/Maakunta/Kemera_{maakunta}.zip`), layer
+  `application_stand_11_90` (financing act 11, workcode 641), the only layer
+  with an `environmentmanagementtype` field. No Metka-era equivalent in the
+  open data. See `docs/MODULE_F_NOTES.md` 2.1. Wired as
+  `metsakeskus.fetch_kemera_environmental`.
+- **CLC2024 (2026-09-06)** — not released; no CLC2024/2021/2020 at the SYKE
+  route. Module E uses CLC2018 (`docs/MODULE_E_NOTES.md` E5c).
+
 ---
 
 ## 5. Config values discovered (recorded for Repo 2)
