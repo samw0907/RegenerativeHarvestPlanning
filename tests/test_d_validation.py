@@ -137,3 +137,34 @@ def test_negative_control_and_concordance_summary_shapes(tmp_path):
     assert 0.0 <= summary["workable_rate_declared"] <= 1.0
     assert 0.0 <= summary["workable_rate_control"] <= 1.0
     assert summary["lift"] > 0.0
+
+
+def test_korjuukelpoisuus_benchmark_recovers_a_negative_gradient(tmp_path):
+    import numpy as np
+    import rasterio
+    from rasterio.transform import from_origin
+
+    from src.d_validation import korjuukelpoisuus_benchmark
+
+    # 6-column grid; DTW decreases left->right (drier->wetter), Korjuu class
+    # increases left->right (better->worse). Perfect negative relationship.
+    def _w(path, arr, dt, nodata):
+        with rasterio.open(path, "w", driver="GTiff", crs="EPSG:3067",
+                           transform=from_origin(0, 60, 10, 10), width=6, height=6,
+                           count=1, dtype=dt, nodata=nodata) as d:
+            d.write(arr, 1)
+
+    dtw = np.tile(np.array([[800, 500, 200, 60, 40, 90]], "int16"), (6, 1))  # cm
+    soil = np.ones((6, 6), "uint8")                                          # all mineral
+    korjuu = np.tile(np.array([[1, 2, 3, 4, 5, 6]], "uint8"), (6, 1))
+    _w(tmp_path / "dtw.tif", dtw, "int16", 32767)
+    _w(tmp_path / "soil.tif", soil, "uint8", 0)
+    _w(tmp_path / "korjuu.tif", korjuu, "uint8", 0)
+
+    cfg_d2 = {"soil_term": {"peat_bearing_penalty": 0.5}}
+    out = korjuukelpoisuus_benchmark(str(tmp_path / "dtw.tif"), str(tmp_path / "soil.tif"),
+                                     str(tmp_path / "korjuu.tif"), cfg_d2)
+    assert out["spearman_soil_adj_dtw_vs_korjuu_class"] < -0.6
+    assert out["per_class"][1]["median_soil_adj_dtw_m"] == pytest.approx(8.0)
+    assert out["per_class"][1]["share_d2_workable"] == pytest.approx(1.0)
+    assert out["per_class"][5]["share_d2_workable"] == pytest.approx(0.0)

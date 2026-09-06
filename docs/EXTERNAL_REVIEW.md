@@ -15,6 +15,75 @@ pass decides which, if any, warrant a change to method, code, scope or framing.
 
 ---
 
+## Status after the first fix pass (2026-09-06)
+
+**Actioned:**
+
+- **B1 (High)** - *done.* `korjuukelpoisuus_benchmark` (`src/d_validation.py`)
+  compares the D2 soil-adjusted DTW against Metsäkeskus's operational
+  Korjuukelpoisuus raster on the D1 catchment. Result: Spearman **-0.58**, a
+  clean monotonic gradient across classes 1-5 (class-1 median soil-adjusted DTW
+  8.1 m -> class-5 0.47 m), with one honest weakness - D2 under-flags class 6
+  (peatland "winter-only" stands). D2 now has a DERIVE-AND-BENCHMARK result
+  against an operational product. Unit tested; wired into `run.py`.
+- **B2 (Medium)** - *done.* `trend_test` (Mann-Kendall) added. The D3
+  season-lengthening is **tau 0.32, p = 0.0005** (significant); the E3
+  conflict-free-window decline is **tau -0.20, p = 0.040** (weak but
+  significant). Both notes and the README now carry the statistics.
+- **D3 (F, Medium)** - *done.* `patch_dpc` now uses the maximum-product
+  probability path (`_max_product_probability`, Dijkstra via `networkx`), the
+  proper PC definition. PC 0.305 -> 0.322, top dPC values shift < 1 point, the
+  ranking is unchanged - the simplification had been harmless here, but the
+  method is now standard.
+- **C1 (High)** - *reframed.* README and MODULE_E_NOTES now headline the
+  waterway-buffer result on the 2-4 ha threshold band (~30,000-50,000 ha
+  additional), with the ditch-inclusive 0.5-1 ha figure explicitly not the
+  headline.
+- **C2 (High)** - *reframed.* E5/E6 are now reported as a **relative**
+  erosion-risk pattern, not absolute t/ha/yr; the README and notes say the
+  absolute scale could not be reconciled with the Metsäkeskus product.
+- **C3 (Medium)** - *done.* The E2 fertility cut is now cited to Tapio's
+  *Metsänhoidon suositukset 2019* (continuous cover on drained spruce mires,
+  mustikkaturvekangas and richer); both `<= 3` and `<= 2` results reported.
+- **C5 (Medium)** - *done.* The deadwood figure is now cited to Luke's
+  Tilastotietokanta table "Kuolleen puuston keskitilavuus metsämaalla",
+  VMI2022, not a news article.
+- **A1 / A3 / A4 (positioning)** - *reframed.* The README opens with a scope
+  note: the reimplementations were to understand and check the official
+  products; in a role you would consume them. Module F is labelled exploratory
+  throughout. The "no ML" framing is softened to "chosen for interpretability".
+- **D5 (F, Medium)** - *reframed.* "Robust" is now defined precisely in the
+  notes and README as stable across the *resistance-model parameters*, not the
+  structural choices.
+- **D6 (F, Low)** - *reframed.* The README states the node network is
+  effectively designations + old stands (ympäristötuki is 10 tiny polygons).
+- **E1 (Medium)** - *documented, not closed.* The README now has an explicit
+  "reproducibility gap" note pointing at a `--rebuild` flag as the fix.
+
+**Considered and deferred (documented as caveats, not actioned):**
+
+- **A2** (one crisp operational deliverable) - packaging work for the portfolio.
+- **C2 partial** (swap in Lilja's Finnish K factors) - a real parameter study;
+  the relative-index reframing removes the pressure.
+- **C4** (trim E3 to a paragraph) - the notes already walked the claim back;
+  left as-is.
+- **C6** (site plan uses per-stand workability) - the Korjuukelpoisuus class is
+  the natural thing to carry into E8; a real build, deferred.
+- **D1 full** (decide Module F scope - keep vs trim) - kept in full, labelled
+  exploratory; trimming is a call for the next review.
+- **D2 (F)** (name a focal species for the resistance surface) - a substantive
+  re-parameterisation, deferred; the limitation is now stated.
+- **D4 (F)** (64 m subset check) - deferred.
+- **E1 full** (fold derivations into `run.py`) - deferred; documented.
+
+The net effect: the review's single biggest gap (no operational benchmark for
+D2) is closed with a genuine result; two soft headline numbers (buffer range,
+RUSLE absolutes) are re-based; the positioning is now explicit about scope and
+level; and the smaller framing points are fixed. The deferred items are all
+either larger builds or portfolio packaging.
+
+---
+
 ## How to read this
 
 Each item: **Finding** / **Why it matters** / **Better alternative** /

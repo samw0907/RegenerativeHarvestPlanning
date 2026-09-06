@@ -36,6 +36,7 @@ from fi_forest_data.metsakeskus import (
 from fi_forest_data.nls import fetch_topographic
 from fi_forest_data.syke import fetch_protected_areas
 from src import figures
+from src.d_validation import korjuukelpoisuus_benchmark
 from src.e_plus_site_planning import (
     buffer_comparison, build_site_plan, ccf_area_summary, ccf_rootrot_conflict,
     conflict_free_felling_window, deadwood_aggregate, extract_channel_network,
@@ -118,6 +119,17 @@ def run_module_e(cfg_all: dict, aoi: AOI) -> None:
             for th in (0.5, 2.0, 10.0)},
         "deadwood_aggregate": deadwood_aggregate(stands, cfg_e),
     }
+
+    # D2 workability benchmarked against the operational Korjuukelpoisuus raster,
+    # if the D1-catchment inputs are present (see docs/MODULE_D_NOTES.md).
+    luke = Path("data/raw/luke")
+    korjuu_inputs = [luke / "dtw2023_2ha__fi1_14_06_161.tif",
+                     luke / "msnfi_soil_main_type_2023__fi1_14_06_161_bbox.tif"]
+    if all(p.exists() for p in korjuu_inputs):
+        korjuu = fetch_raster("Korjuukelpoisuus", _CATCHMENT)
+        report["d2_workability_vs_korjuukelpoisuus"] = korjuukelpoisuus_benchmark(
+            str(korjuu_inputs[0]), str(korjuu_inputs[1]), korjuu, cfg_d2)
+
     (out_dir / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     site_plan = build_site_plan(stands, habitats, str(_E / "streams_0.5ha.tif"), cfg_e, cfg_d3)

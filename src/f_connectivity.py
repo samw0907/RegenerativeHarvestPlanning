@@ -242,14 +242,36 @@ def patch_least_cost(patches: gpd.GeoDataFrame, coarse_arr: np.ndarray, transfor
     return cost_matrix, cost_fields
 
 
+def _max_product_probability(cost_matrix: np.ndarray, dispersal_cost: float) -> np.ndarray:
+    """The Probability of Connectivity `p*_ij`: the maximum-product probability
+    path between each patch pair, i.e. `exp(-d_ij)` where `d_ij` is the
+    shortest path on `-log(exp(-cost/dispersal))` (Dijkstra). This is the PC
+    definition (Saura & Pascual-Hortal 2007); the direct pairwise term
+    underestimates connectivity for patches linked through intermediates."""
+    import networkx as nx
+
+    n = cost_matrix.shape[0]
+    w = cost_matrix / dispersal_cost  # -log of the direct probability
+    g = nx.Graph()
+    g.add_nodes_from(range(n))
+    ii, jj = np.triu_indices(n, k=1)
+    for i, j in zip(ii.tolist(), jj.tolist()):
+        if np.isfinite(w[i, j]):
+            g.add_edge(i, j, weight=float(w[i, j]))
+    p = np.zeros((n, n))
+    for i, dists in nx.all_pairs_dijkstra_path_length(g, weight="weight"):
+        idx = list(dists)
+        p[i, idx] = np.exp(-np.fromiter(dists.values(), dtype="float64"))
+    np.fill_diagonal(p, 1.0)
+    return p
+
+
 def patch_dpc(cost_matrix: np.ndarray, areas: np.ndarray, *, dispersal_cost: float,
               landscape_area: float | None = None) -> tuple[np.ndarray, float]:
     """Probability of Connectivity (Saura & Pascual-Hortal 2007) and each
-    patch's dPC - the percentage drop in PC if that patch were removed.
-    `p_ij = exp(-cost_ij / dispersal_cost)`, with the max-product path replaced
-    here by the direct pairwise term (adequate at this patch count)."""
-    p = np.exp(-cost_matrix / dispersal_cost)
-    np.fill_diagonal(p, 1.0)
+    patch's dPC - the percentage drop in PC if that patch were removed. Uses
+    the maximum-product probability path between patches (`_max_product_probability`)."""
+    p = _max_product_probability(cost_matrix, dispersal_cost)
     a_l = landscape_area if landscape_area is not None else float(areas.sum())
 
     def _pc(mask):

@@ -259,13 +259,15 @@ config already used for spore dispersal), the *actual* warm season in
 representative years ran 153-189 days (e.g. 2000: 19 Apr - 25 Oct; 2020: 2 May
 - 7 Nov) - shorter than but well inside the fixed 1 May-30 Nov (214-day)
 calendar window, which is consistent with that window being a deliberately
-generous regulatory approximation. **The measured season has lengthened
-noticeably over the record**: mean 147.2 days in 1970-1979 vs **176.9 days in
-2015-2024 - about 30 days (20 %) longer.** This is a genuine, quantified,
-climate-consistent finding, and the flip side of the plan's own flagged talking
-point (a shortening *frozen* harvest window) - the same warming trend that
-raises root-rot risk duration also compresses the frozen season Module D's
-own trafficability logic depends on.
+generous regulatory approximation. **The measured season has lengthened over
+the record**: mean 147.2 days in 1970-1979 vs 176.9 days in 2015-2024, about
+30 days longer. A Mann-Kendall trend test on the 55 annual values (added in
+the first fix pass) puts this on firm ground: **tau = 0.32, p = 0.0005**,
+OLS slope +0.52 days/year (~29 days over 55 years). It is a statistically
+significant increasing trend, not just a warm last decade - the flip side of
+the plan's own flagged talking point (a shortening *frozen* harvest window),
+and the same warming trend that raises root-rot risk duration also compresses
+the frozen season Module D's trafficability logic depends on.
 - **The declared-vs-random concordance check is a genuine negative result,
   reported without softening.** Declared harvest dates show no concordance
   advantage over random dates against the D1-D3 workability model (lift 0.976
@@ -349,6 +351,43 @@ real-date weather checks, real-stand rule-engine agreement); this check
 specifically cannot confirm or refute whether the D1-D3 workability model
 tracks real felling timing, and the README and any figure using this result
 must say so plainly rather than reporting the lift number without the caveat.
+
+### D validation - D2 workability vs Metsakeskus Korjuukelpoisuus (done, first fix pass 2026-09-06)
+
+The external review's headline criticism: D2's actual output - a
+bearing-capacity workability classification - was never benchmarked against
+Metsakeskus's **operational Korjuukelpoisuus** raster (HarvestAccessibilityType
+1 = year-round even in thaw ... 6 = winter-harvest only, 16 m, on the same WCS
+the project already uses for RUSLE). `korjuukelpoisuus_benchmark` in
+`src/d_validation.py` does that comparison on the D1 catchment: the D2
+soil-adjusted DTW at Luke's 2 ha ("average conditions") threshold, the peat
+term from the MS-NFI soil raster, aligned onto the Luke DTW grid, against the
+Korjuukelpoisuus class.
+
+**Result - D2 tracks the operational classification.**
+
+| Korjuu class | median D2 soil-adj DTW (m) | share D2 calls workable (> 1 m) |
+|---|---|---|
+| 1 (year-round) | 8.13 | 0.98 |
+| 2 | 3.37 | 0.86 |
+| 3 | 1.64 | 0.67 |
+| 4 | 0.48 | 0.20 |
+| 5 | 0.47 | 0.18 |
+| 6 (winter only) | 0.91 | 0.47 |
+
+Spearman rank correlation between soil-adjusted DTW and the Korjuu class is
+**-0.58** (drier D2 prediction -> better operational class, as it should be).
+Classes 1-5 are a clean monotonic gradient. **The one weakness, stated
+plainly:** class 6 (which Metsakeskus assigns to peatland stands that are
+trafficable in winter only) has a median D2 DTW of 0.91 m and D2 still calls
+47% of it workable-when-not-frozen. D2's topography-plus-a-flat-peat-penalty
+term under-captures the peat-specific constraint that the operational product
+encodes from soil type directly. This is the concrete thing to improve in D2's
+soil term, and it is why the E8 site plan should carry the Korjuukelpoisuus
+class rather than only a peat flag.
+
+So D2 now has a real DERIVE-AND-BENCHMARK result against an operational Finnish
+product, which the declaration-timing check could not provide.
 
 ---
 

@@ -329,7 +329,7 @@ def conflict_free_felling_window(daily_weather: pd.DataFrame, cfg_d3: dict) -> d
     Winters are attributed Jul->Jun so one winter's frozen days are not split
     across two calendar years; partial winters at the record ends are dropped.
     """
-    from src.d2_dtw_extend import frozen_ground_days
+    from src.d2_dtw_extend import frozen_ground_days, trend_test
     from src.d3_rootrot_rules import in_mandatory_period
 
     frozen = frozen_ground_days(daily_weather).to_numpy()
@@ -350,6 +350,7 @@ def conflict_free_felling_window(daily_weather: pd.DataFrame, cfg_d3: dict) -> d
         "by_decade_mean_days": {int(k): float(v) for k, v in by_decade.items()},
         "first_decade_mean": float(by_decade.iloc[0]),
         "last_decade_mean": float(by_decade.iloc[-1]),
+        "trend": trend_test(per_winter.to_numpy()),
     }
 
 

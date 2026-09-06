@@ -350,12 +350,18 @@ shoulders, and the November ones sit inside the mandatory period already, so
 removing them does not change this count. The Dec-Apr core that this window
 depends on has been comparatively stable.
 
+**Trend test (added in the first fix pass).** Mann-Kendall on the 53 annual
+window lengths: **tau = -0.20, p = 0.040**, OLS slope -0.33 days/year. So the
+decline is statistically significant at the 5% level but weak (small tau,
+borderline p) - about 17 fewer days over the record, most of it the 2010s dip
+with a partial recovery after. Contrast the D3 thermal-season lengthening
+(tau = 0.32, p = 0.0005), which is a much stronger signal.
+
 So the honest statement for the README is: the CCF prescription applies to
 ~1,700 ha that the root-rot rule also covers, and those stands have roughly a
 three-and-a-half month annual window in which felling avoids both the
-bearing-capacity limit and the treatment obligation - a window that dipped in
-the 2010s but has not shown a strong sustained decline over the record. Not
-"the window is closing".
+bearing-capacity limit and the treatment obligation - a window with a weak but
+significant downward trend, driven by a 2010s dip. Not "the window is closing".
 
 Unit tested: the stand overlap (synthetic stands, boundary spruce share) and
 the window count (synthetic weather with frost runs placed inside and outside
@@ -686,26 +692,34 @@ Module E turns the Metsa Group Plus measures into open-data-derived numbers for
 one mill procurement area (the ~235,000 ha of private managed forest inside the
 3,400 km2 Central Finland AOI):
 
-- **Small streams mapped hydrography misses.** The derived channel network's
-  30 m buffer covers 21,000-170,000 ha depending on the waterway-class
-  threshold; against NLS mapped hydrography's own 30 m buffer (74,000 ha), the
-  *additional* area ranges from ~21,000 ha (major channels only, the defensible
-  lower bound) to ~114,000 ha (all small streams and drainage ditches, an
-  inclusive upper bound). Reported as a threshold range, not one headline
-  number.
-- **CCF-on-peatland is a small, specific target.** ~1,674 ha of lush drained
-  spruce peatland - 7.9% of drained peatland, 0.7% of the supply area - where
-  Plus prescribes continuous cover instead of clearcut. Small because spruce
-  mires are the uncommon fertile minority of Finnish peatland, not a data gap.
+- **Small streams mapped hydrography misses.** *Headline figure (revised in the
+  first fix pass):* at the 2-4 ha channel-initiation threshold - the band most
+  likely to be genuine small natural streams rather than drainage ditches - the
+  derived network's 30 m buffer adds roughly **30,000-50,000 ha** over NLS
+  mapped hydrography's own 30 m buffer (74,000 ha). The 0.5-1 ha threshold
+  pushes the additional area to ~77,000-114,000 ha but that end is
+  ditch-inclusive and should not be the headline. The full threshold table is
+  in E1c; the point is that mapped hydrography misses a large, specific area of
+  small watercourses, not the exact number.
+- **CCF-on-peatland is a small, specific target.** ~1,674 ha of drained
+  spruce-dominated peatland at Tapio's continuous-cover site band
+  (mustikkaturvekangas and richer) - 7.9% of drained peatland, 0.7% of the
+  supply area. 141 ha at the stricter Rhtkg-and-richer cut. Small because
+  spruce mires are the uncommon fertile minority of Finnish peatland, not a
+  data gap.
 - **The CCF prescription and the root-rot obligation target the same stands.**
   100% overlap by construction (both key on spruce >= 0.5), and the felling
-  season that satisfies both - frozen winter ground - is ~106 days/yr, down
-  modestly (with a 2010s dip) over the FMI record.
+  season that satisfies both - frozen winter ground - is ~106 days/yr, with a
+  weak but significant downward trend (Mann-Kendall tau -0.20, p = 0.04).
 - **S10 habitat setbacks touch ~6% of the supply area**, mostly water-feature
   habitats; the footprint barely grows from a 10 m to a 30 m setback.
-- **Erosion is low throughout** (p90 RUSLE A = 0.4 t/ha/yr); the RUSLE
-  cross-reference is a within-landscape prioritisation flag - 5-8% of the
-  waterway buffer zone sits on the erosion-prone top decile.
+- **Erosion is low and E5/E6 are reported as a *relative* risk index, not
+  absolute soil loss.** The RUSLE benchmark (E5e) left the absolute scale vs
+  Metsakeskus unresolved (~100x, likely units), R is from a south-west Finland
+  study and K from Europe-wide ranges, so the t/ha/yr numbers (p90 A =
+  0.4) are indicative only. The usable output is the *pattern*: which cells
+  rank as erosion-prone, and that 5-8% of the waterway buffer zone sits on the
+  top-decile-risk terrain.
 - **Deadwood:** ~1.29 Mm3 total / ~0.39 Mm3 standing across the supply area
   from the regional VMI average; the Plus stems/ha target is stated alongside,
   not converted.

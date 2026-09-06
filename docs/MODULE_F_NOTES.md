@@ -140,8 +140,14 @@ accumulation, config `module_f_connectivity.connectivity`:
   308,505 patch pairs are mutually reachable - the rest are separated by lakes,
   realistic for this landscape.
 - `patch_dpc` - Probability of Connectivity (Saura & Pascual-Hortal 2007) and
-  each patch's **dPC** (% drop in PC if that patch were removed),
-  `p_ij = exp(-cost_ij / 8000)`.
+  each patch's **dPC** (% drop in PC if that patch were removed). Uses the
+  proper PC definition: `p*_ij` is the **maximum-product probability path**
+  between patches (`_max_product_probability`, Dijkstra on `-log p` via
+  `networkx`), not the direct pairwise term. (The first-pass code used the
+  direct term; switching to the max-product path in the fix pass moved PC
+  0.305 -> 0.322 and the top dPC values by < 1 point - the ranking is
+  unchanged, so the simplification had in fact been harmless here, but the
+  method is now the standard one.)
 - `backbone_edges` + `corridor_density` - corridors accumulated only for the
   connectivity **backbone** (each patch to its 3 lowest-cost neighbours, 1,174
   undirected edges), not every patch pair. Each corridor is the cells within
@@ -154,11 +160,12 @@ accumulation, config `module_f_connectivity.connectivity`:
 
 **Baseline results:**
 
-- **PC = 0.305.** dPC is dominated by the two largest Natura patches: **36.3%
-  and 34.2%**, then 21.8%, 7.5%, 6.3%, tailing off. Removing either big anchor
-  roughly halves network connectivity. The ranking is stable to the coarsening
-  choice (a 64 m run gave 38.4 / 35.2 / 18.5 / 7.4) - the patch-importance
-  result is robust, the big protected sites carry the network and the many
+- **PC = 0.32.** dPC (max-product path) is dominated by the two largest Natura
+  patches: **35.9% and 33.4%**, then 21.8%, 7.3%, 6.7%, tailing off. Removing
+  either big anchor roughly halves network connectivity. The ranking is stable
+  to the coarsening choice (a 64 m run gave 38.4 / 35.2 / 18.5 / 7.4) - the
+  patch-importance result is robust, the big protected sites carry the network
+  and the many
   small §10 habitats add little individually.
 - **Per-stand corridor score:** 42,005 of 168,026 stands score above zero
   (25%); the top decile of those is the baseline connectivity-priority set.
@@ -196,6 +203,15 @@ baseline F3a ranking was already close to the robust one. Written to
 `data/interim/f/stand_connectivity_robust.gpkg` (`mean_score`,
 `top_decile_runs`, `robust`); per-run parameters and PC in
 `sensitivity_runs.json`.
+
+**What "robust" does and does not cover (stated after the fix pass).** The
+sweep varies the *ecological* parameters - the four resistance weights, the
+eight land-cover costs, and the dispersal distance. It does **not** vary the
+structural choices: the node sources, the 200 m patch-merge distance, the
+backbone-k, the corridor slack, or the 128 m grid. "Robust" therefore means
+"stable across plausible resistance-model parameterisations", not "stable
+across every modelling decision". Widening the sweep to a few structural
+variants is a documented open item.
 
 ### F4 - figures and `run.py` wiring (done, 2026-09-06)
 

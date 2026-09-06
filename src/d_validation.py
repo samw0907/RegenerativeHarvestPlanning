@@ -149,3 +149,76 @@ def concordance_summary(declared: pd.DataFrame, control: pd.DataFrame) -> dict:
         "frozen_share_declared": round(float(declared["frozen"].mean()), 4),
         "frozen_share_control": round(float(control["frozen"].mean()), 4),
     }
+
+
+def korjuukelpoisuus_benchmark(
+    luke_dtw_2ha_path: str,
+    msnfi_soil_path: str,
+    korjuu_path: str,
+    cfg_d2: dict,
+    *,
+    wet_threshold_m: float = 1.0,
+    peat_soil_classes=(2, 3, 4),
+) -> dict:
+    """Benchmark the D2 soil-adjusted DTW (the bearing-capacity part of the
+    workability model, before the frozen-ground override) against Metsakeskus's
+    operational **Korjuukelpoisuus** harvest-trafficability raster
+    (HarvestAccessibilityType 1 = year-round even in thaw ... 6 = winter-harvest
+    only). This is the DERIVE-AND-BENCHMARK comparison for D2 that the
+    declaration-timing check could not provide.
+
+    All three rasters are aligned onto the Luke 2 ha DTW grid (2 ha = Luke's
+    own "average conditions" threshold). Reports, on cells classified 1-6:
+    Spearman rank correlation between soil-adjusted DTW and the Korjuu class
+    (expected strongly negative - drier ground, lower/better class), the median
+    soil-adjusted DTW per class, and the share D2 would call workable
+    (soil-adjusted DTW > wet_threshold_m) per class.
+    """
+    import rasterio
+    from rasterio.warp import Resampling, reproject
+    from scipy.stats import spearmanr
+
+    with rasterio.open(luke_dtw_2ha_path) as src:
+        dtw_m = src.read(1).astype("float64") * 0.01
+        dtw_nodata = (src.read(1) == src.nodata) if src.nodata is not None else None
+        transform, crs, shape = src.transform, src.crs, (src.height, src.width)
+
+    def _onto_grid(path, dtype):
+        with rasterio.open(path) as s:
+            out = np.zeros(shape, dtype=dtype)
+            reproject(s.read(1), out, src_transform=s.transform, src_crs=s.crs,
+                      dst_transform=transform, dst_crs=crs,
+                      resampling=Resampling.nearest, src_nodata=s.nodata, dst_nodata=0)
+        return out
+
+    soil = _onto_grid(msnfi_soil_path, "int32")
+    korjuu = _onto_grid(korjuu_path, "int32")
+
+    peat = np.isin(soil, np.asarray(peat_soil_classes, dtype="int32"))
+    penalty = cfg_d2["soil_term"]["peat_bearing_penalty"]
+    adj = soil_adjusted_dtw(dtw_m, peat, peat_bearing_penalty=penalty)
+
+    valid = (korjuu >= 1) & (korjuu <= 6) & np.isfinite(adj) & (dtw_m > 0)
+    if dtw_nodata is not None:
+        valid &= ~dtw_nodata
+
+    a, k = adj[valid], korjuu[valid]
+    sr = spearmanr(a, k).correlation
+    per_class = {}
+    for cls in range(1, 7):
+        m = k == cls
+        if m.any():
+            per_class[cls] = {
+                "n_cells": int(m.sum()),
+                "median_soil_adj_dtw_m": round(float(np.median(a[m])), 3),
+                "share_d2_workable": round(float((a[m] > wet_threshold_m).mean()), 3),
+            }
+    return {
+        "n_cells": int(valid.sum()),
+        "spearman_soil_adj_dtw_vs_korjuu_class": round(float(sr), 3),
+        "d2_workable_share_class_1_3": round(float(
+            (a[np.isin(k, [1, 2, 3])] > wet_threshold_m).mean()), 3),
+        "d2_workable_share_class_6": round(float(
+            (a[k == 6] > wet_threshold_m).mean()), 3),
+        "per_class": per_class,
+    }

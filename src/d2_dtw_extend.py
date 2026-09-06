@@ -47,6 +47,27 @@ import numpy as np
 import pandas as pd
 
 THRESHOLDS_HA = (0.5, 1.0, 2.0, 4.0, 10.0)  # wettest -> driest, Luke's official set
+
+
+def trend_test(values) -> dict:
+    """Mann-Kendall trend test (Kendall tau between the series and the time
+    index, tie-corrected, two-sided). `tau > 0` = an increasing trend. Returns
+    tau, p, the number of points, and the OLS slope per step for context.
+    Fewer than 4 finite points returns NaNs."""
+    from scipy.stats import kendalltau, linregress
+
+    v = np.asarray(values, dtype="float64")
+    v = v[np.isfinite(v)]
+    if len(v) < 4:
+        return {"tau": float("nan"), "p": float("nan"), "n": int(len(v)),
+                "slope_per_step": float("nan")}
+    t = np.arange(len(v), dtype="float64")
+    kt = kendalltau(t, v)
+    lr = linregress(t, v)
+    return {"tau": round(float(kt.statistic), 3), "p": round(float(kt.pvalue), 4),
+            "n": int(len(v)), "slope_per_step": round(float(lr.slope), 3)}
+
+
 _RRDAY_DRY_SENTINEL = -1.0   # FMI convention: -1 means "no precipitation"
 _SNOW_ABSENT_SENTINEL = -1.0  # FMI convention: -1 means "no snow on the ground"
 
