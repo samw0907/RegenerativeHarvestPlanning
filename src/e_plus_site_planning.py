@@ -309,3 +309,45 @@ def ccf_rootrot_conflict(stands: gpd.GeoDataFrame, cfg_ccf: dict, cfg_d3: dict) 
         "conflict_share_of_ccf_eligible": round(conflict_ha / ccf_ha, 3) if ccf_ha else None,
         "n_conflict_stands": int(conflict.sum()),
     }
+
+
+def conflict_free_felling_window(daily_weather: pd.DataFrame, cfg_d3: dict) -> dict:
+    """Days per winter that are both trafficable on wet peat - frozen ground,
+    D2's `frozen_ground_days` proxy - and outside the root-rot mandatory
+    stump-treatment period (1 May - 30 Nov, D3's `in_mandatory_period`). This
+    is the window in which a CCF-eligible lush drained spruce peatland stand
+    can be felled without hitting either the bearing-capacity limit or the
+    treatment obligation.
+
+    One figure for the whole CCF-eligible set, not per stand: those stands are
+    all peat/drained/spruce/lush within one AOI served by one FMI station, and
+    the mandatory period is a fixed national calendar, so there is nothing
+    per-stand to resolve. "Workable" is taken here as "frozen" only - the plan
+    frames CCF felling on these wet stands as a winter operation, and D2's peat
+    bearing penalty makes the summer dry-DTW route unavailable in practice.
+
+    Winters are attributed Jul->Jun so one winter's frozen days are not split
+    across two calendar years; partial winters at the record ends are dropped.
+    """
+    from src.d2_dtw_extend import frozen_ground_days
+    from src.d3_rootrot_rules import in_mandatory_period
+
+    frozen = frozen_ground_days(daily_weather).to_numpy()
+    in_period = np.asarray(in_mandatory_period(daily_weather.index, cfg_d3), dtype=bool)
+    window = frozen & ~in_period
+
+    idx = daily_weather.index
+    winter_year = np.where(idx.month >= 7, idx.year, idx.year - 1)
+    df = pd.DataFrame({"window": window, "winter_year": winter_year})
+    per_winter = df.groupby("winter_year")["window"].sum()
+    days_in_group = df.groupby("winter_year")["window"].size()
+    per_winter = per_winter[days_in_group >= 350]  # drop partial winters at the ends
+
+    decade = (per_winter.index // 10) * 10
+    by_decade = per_winter.groupby(decade).mean().round(1)
+    return {
+        "per_winter_days": {int(k): int(v) for k, v in per_winter.items()},
+        "by_decade_mean_days": {int(k): float(v) for k, v in by_decade.items()},
+        "first_decade_mean": float(by_decade.iloc[0]),
+        "last_decade_mean": float(by_decade.iloc[-1]),
+    }

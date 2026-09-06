@@ -6,6 +6,7 @@ multi-minute run on the full-AOI 16 m DEM, same testing philosophy as D1's
 
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import pytest
 import rasterio
 from rasterio.transform import from_origin
@@ -168,3 +169,23 @@ def test_ccf_rootrot_conflict_overlap_is_near_total_by_construction():
     assert out["ccf_eligible_and_rootrot_trigger_ha"] == pytest.approx(140.0)
     assert out["conflict_share_of_ccf_eligible"] == pytest.approx(1.0)
     assert out["n_conflict_stands"] == 2
+
+
+def test_conflict_free_felling_window_counts_only_frozen_days_outside_the_mandatory_period():
+    from src.e_plus_site_planning import conflict_free_felling_window
+
+    idx = pd.date_range("2000-07-01", "2003-06-30", freq="D")
+    tmin = pd.Series(5.0, index=idx)
+    # a 20-day hard frost each Jan (Dec-Apr -> counts) and each Oct (in the
+    # 1 May-30 Nov mandatory period -> must not count)
+    for yr in (2001, 2002, 2003):
+        tmin.loc[f"{yr}-01-10":f"{yr}-01-29"] = -10.0
+    for yr in (2000, 2001, 2002):
+        tmin.loc[f"{yr}-10-05":f"{yr}-10-24"] = -10.0
+    daily = pd.DataFrame({"tmin": tmin})
+
+    out = conflict_free_felling_window(daily, {"mandatory_period": {"start": "05-01", "end": "11-30"}})
+    # three complete winters (2000, 2001, 2002 by Jul->Jun attribution), each
+    # with exactly the 20 January frost days and none of the October ones
+    assert set(out["per_winter_days"].values()) == {20}
+    assert out["by_decade_mean_days"] == {2000: 20.0}

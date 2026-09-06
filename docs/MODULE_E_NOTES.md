@@ -306,40 +306,60 @@ per-stand site-plan record assembly and `figures.py` / `run.py`.
 
 ### E3 - the Plus CCF vs root-rot conflict overlay (done, 2026-09-06)
 
-`ccf_rootrot_conflict` in `src/e_plus_site_planning.py`: overlays the E2
-CCF-eligible set with D3's `species_soil_rule` (reused unchanged), on the
-full-AOI stand data.
+Two functions in `src/e_plus_site_planning.py`, both reusing existing D2/D3
+logic unchanged, run on the full-AOI stand data and the 55-year FMI record.
 
-**Result: the overlap is total. 1,673.7 ha / 1,581 stands - 100.0% of the
-CCF-eligible area - also triggers the root-rot species/soil rule.** This is
-structural, not a coincidence to marvel at: the CCF filter requires
-spruce-dominated (`>= 0.5`) peat, and the peat-soil root-rot trigger is
-"spruce share `>= 0.5`", so every stand that passes one passes the other.
-The Plus peatland prescription and the Forest Damages Prevention Act's
-root-rot obligation are pointed at the same stand type.
+**1. Stand overlap (`ccf_rootrot_conflict`).** Applies D3's `species_soil_rule`
+to the E2 CCF-eligible set. 100% of it - 1,673.7 ha / 1,581 stands - also
+triggers the root-rot species/soil rule. This is forced by the filter
+definitions: the CCF filter requires spruce share >= 0.5 on peat, and the
+peat-soil root-rot trigger is spruce share >= 0.5, so the two select the same
+stands. Kept as a one-line fact, not a result in its own right.
 
-**Why that is a genuine tension, not just a definitional overlap.** Plus
-prescribes *continuous cover* on these sites - repeated partial/selection
-fellings that keep spruce as the perpetual dominant. Heterobasidion (butt rot)
-spreads through connected root systems and is made worse, not better, by
-successive entries on the same spruce root network; the lower-risk silvicultural
-answer to established root rot is a clearcut followed by a species change, which
-is exactly what Plus is steering these stands away from. On top of that, the
-felling-season options are boxed in from both sides: the wet, low-bearing-
-capacity peat wants frozen ground for trafficable felling (Module D), and
-frozen felling also falls outside the root-rot mandatory stump-treatment period
-(1 May - 30 Nov, D3) - so winter is the one season that resolves both
-pressures. And that window is closing: frozen-ground days per winter at the
-AOI's FMI station (101537), via D2's `frozen_ground_days`, fell from a
-1970s-90s mean of ~134 to ~110 in 2010-2023 (about 20-25 fewer days,
-consistent with D3's independently-measured +30-day warm-season lengthening).
+**2. Conflict-free felling window (`conflict_free_felling_window`).** The
+substantive calculation. Counts days per winter that are both frozen ground
+(D2's `frozen_ground_days` proxy - the trafficability route the plan assumes
+for CCF felling on wet peat) and outside the root-rot mandatory stump-treatment
+period (1 May - 30 Nov). One figure for the whole CCF-eligible set: those
+stands are all peat/drained/spruce/lush in one AOI with one FMI station and the
+mandatory period is a fixed national calendar, so there is no per-stand
+variation to compute.
 
-So the conflict set is not a handful of edge cases to note and move past - it
-is the entire CCF-eligible area, and the practical room to satisfy both the
-prescription and the root-rot rule is a winter window that the same warming
-trend behind the prescription's climate rationale is shrinking. Surfaced, per
-the plan, rather than glossed. Unit tested (synthetic stands, boundary
-spruce-share case).
+Result, by decade (station 101537, 53 complete winters):
+
+| decade | mean conflict-free days/winter |
+|---|---|
+| 1970s | 109.6 |
+| 1980s | 111.8 |
+| 1990s | 109.7 |
+| 2000s | 103.7 |
+| 2010s | 93.4 |
+| 2020s (4 winters) | 106.8 |
+
+Overall mean ~106 days/winter, range 61-131.
+
+**Reading of the result.** The window is ~106 days a year and the long-run
+decline is modest - about 3 days between the first and last decade means, well
+inside the winter-to-winter spread (61-131). The one clear feature is a 2010s
+dip to ~93, with a partial recovery in the (short, noisy) 2020s sample. This is
+a smaller effect than the raw frozen-ground-day trend elsewhere in this
+project (D3's +30-day warm-season lengthening, and total frozen-ground days
+falling ~134 -> ~110 over the record), and the reason is specific: the
+frozen-ground days lost to warming are mostly at the November and April
+shoulders, and the November ones sit inside the mandatory period already, so
+removing them does not change this count. The Dec-Apr core that this window
+depends on has been comparatively stable.
+
+So the honest statement for the README is: the CCF prescription applies to
+~1,700 ha that the root-rot rule also covers, and those stands have roughly a
+three-and-a-half month annual window in which felling avoids both the
+bearing-capacity limit and the treatment obligation - a window that dipped in
+the 2010s but has not shown a strong sustained decline over the record. Not
+"the window is closing".
+
+Unit tested: the stand overlap (synthetic stands, boundary spruce share) and
+the window count (synthetic weather with frost runs placed inside and outside
+the mandatory period).
 
 ---
 
