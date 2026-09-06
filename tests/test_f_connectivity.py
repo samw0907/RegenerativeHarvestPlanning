@@ -142,3 +142,30 @@ def test_f3_connectivity_pipeline_on_a_tiny_synthetic_landscape():
         geometry=gpd.GeoSeries([_poly(5)], crs="EPSG:3067").translate(yoff=10))
     score = per_stand_corridor_score(stands, dens, transform)
     assert score.shape == (1,) and score[0] >= 0
+
+
+def test_perturb_resistance_cfg_is_seeded_and_in_range():
+    import numpy as np
+
+    from src.f_connectivity import perturb_resistance_cfg
+
+    cfg_res = {
+        "weights": {"age": 0.3, "structure": 0.25, "species": 0.2, "landcover": 0.25},
+        "landcover_resistance": {"forest": 0.1, "water": 1.0, "built": 0.9},
+        "water_resistance": 1000.0,
+    }
+    cfg_conn = {"dispersal_cost": 8000.0, "coarsen_factor": 8, "backbone_k_nearest": 3,
+                "corridor_slack": 0.15}
+    cfg_sens = {"weight_perturbation": 0.4, "landcover_perturbation": 0.3,
+                "dispersal_perturbation": 0.5}
+
+    a1, c1 = perturb_resistance_cfg(cfg_res, cfg_conn, cfg_sens, np.random.default_rng(0))
+    a2, c2 = perturb_resistance_cfg(cfg_res, cfg_conn, cfg_sens, np.random.default_rng(0))
+    assert a1 == a2 and c1 == c2                                   # seeded -> reproducible
+    assert abs(sum(a1["weights"].values()) - 1.0) < 1e-9          # renormalised
+    assert all(0.02 <= v <= 1.0 for v in a1["landcover_resistance"].values())
+    assert 4000.0 <= c1["dispersal_cost"] <= 12000.0
+    assert c1["coarsen_factor"] == 8                              # numerical settings untouched
+
+    a3, _ = perturb_resistance_cfg(cfg_res, cfg_conn, cfg_sens, np.random.default_rng(1))
+    assert a3["weights"] != a1["weights"]                         # different seed -> different draw

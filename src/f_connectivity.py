@@ -167,21 +167,29 @@ def resistance_surface(
 # F3 - least-cost connectivity
 # ----------------------------------------------------------------------------
 
+def _coarsen_array(arr: np.ndarray, factor: int, transform, water_resistance: float):
+    """Block-average an in-memory resistance array by an integer factor. Cells
+    whose coarse average exceeds half the water value are snapped back to the
+    water barrier so lakes stay impassable. Returns (coarse_array,
+    coarse_transform)."""
+    h, w = arr.shape[0] // factor, arr.shape[1] // factor
+    block = arr[:h * factor, :w * factor].astype("float64").reshape(h, factor, w, factor)
+    coarse = block.mean(axis=(1, 3))
+    coarse = np.where(coarse > water_resistance / 2.0, water_resistance,
+                      np.clip(coarse, 1e-3, None))
+    coarse_transform = transform * transform.scale(factor, factor)
+    return coarse, coarse_transform
+
+
 def _coarsen(resistance_path: str, factor: int, water_resistance: float):
-    """Average-resample the resistance raster by an integer factor. Cells whose
-    coarse average exceeds half the water value are snapped back to the water
-    barrier so lakes stay impassable after smoothing. Returns (array,
-    transform, crs)."""
+    """`_coarsen_array` reading from a raster path. Returns (array, transform, crs)."""
     import rasterio
-    from rasterio.enums import Resampling
 
     with rasterio.open(resistance_path) as src:
-        h, w = src.height // factor, src.width // factor
-        arr = src.read(1, out_shape=(h, w), resampling=Resampling.average).astype("float64")
-        transform = src.transform * src.transform.scale(src.width / w, src.height / h)
-        crs = src.crs
-    arr = np.where(arr > water_resistance / 2.0, water_resistance, np.clip(arr, 1e-3, None))
-    return arr, transform, crs
+        arr = src.read(1).astype("float64")
+        transform, crs = src.transform, src.crs
+    coarse, coarse_transform = _coarsen_array(arr, factor, transform, water_resistance)
+    return coarse, coarse_transform, crs
 
 
 def build_patches(nodes: gpd.GeoDataFrame, *, merge_buffer_m: float = 200.0,
@@ -325,3 +333,97 @@ def per_stand_corridor_score(stands: gpd.GeoDataFrame, density: np.ndarray,
         means = ndimage.mean(density, labels, index=present)
         out[present - 1] = means
     return out
+
+
+# ----------------------------------------------------------------------------
+# F3b - sensitivity sweep
+# ----------------------------------------------------------------------------
+
+def perturb_resistance_cfg(cfg_res: dict, cfg_conn: dict, cfg_sens: dict, rng) -> tuple[dict, dict]:
+    """One perturbed copy of the resistance model: each weight and each
+    land-cover resistance multiplied by `1 + U(-p, p)` (weights renormalised to
+    sum 1; land-cover values clipped to [0.02, 1]), and `dispersal_cost`
+    likewise. Numerical settings (coarsen factor, backbone k, slack) are left
+    fixed - the sweep is over the ecological assumptions, not the resolution."""
+    res = {k: (dict(v) if isinstance(v, dict) else v) for k, v in cfg_res.items()}
+    conn = dict(cfg_conn)
+
+    wp = cfg_sens["weight_perturbation"]
+    w = {k: v * (1.0 + rng.uniform(-wp, wp)) for k, v in cfg_res["weights"].items()}
+    s = sum(w.values())
+    res["weights"] = {k: v / s for k, v in w.items()}
+
+    lp = cfg_sens["landcover_perturbation"]
+    res["landcover_resistance"] = {
+        k: float(np.clip(v * (1.0 + rng.uniform(-lp, lp)), 0.02, 1.0))
+        for k, v in cfg_res["landcover_resistance"].items()}
+
+    dp = cfg_sens["dispersal_perturbation"]
+    conn["dispersal_cost"] = cfg_conn["dispersal_cost"] * (1.0 + rng.uniform(-dp, dp))
+    return res, conn
+
+
+def sensitivity_sweep(
+    stands: gpd.GeoDataFrame,
+    patches: gpd.GeoDataFrame,
+    clc_path: str,
+    grid_path: str,
+    cfg_res: dict,
+    cfg_conn: dict,
+    cfg_sens: dict,
+    *,
+    n_runs: int,
+) -> tuple[gpd.GeoDataFrame, list[dict]]:
+    """Run the F3a per-stand corridor score `n_runs` times on perturbed
+    resistance models and return:
+
+    - a stand GeoDataFrame with `mean_score`, `top_decile_runs` (0..n_runs) and
+      `robust` (top-decile in >= `robust_top_decile_frac` of runs)
+    - a per-run summary (weights used, PC, dispersal_cost, top-decile threshold)
+
+    `patches` are fixed across runs (the F1 nodes do not depend on the
+    resistance model); only the cost surface and the derived corridors move."""
+    rng = np.random.default_rng(cfg_sens["seed"])
+    areas = patches["area_ha"].to_numpy()
+
+    n = len(stands)
+    score_sum = np.zeros(n)
+    top_decile_runs = np.zeros(n, dtype=int)
+    summary = []
+
+    for run in range(n_runs):
+        res_p, conn_p = perturb_resistance_cfg(cfg_res, cfg_conn, cfg_sens, rng)
+        r, prof = resistance_surface(stands, clc_path, grid_path, res_p)
+        coarse, tr = _coarsen_array(r, int(conn_p["coarsen_factor"]),
+                                    prof["transform"], res_p["water_resistance"])
+        cm, fields = patch_least_cost(patches, coarse, tr)
+        dpc, pc = patch_dpc(cm, areas, dispersal_cost=conn_p["dispersal_cost"])
+        edges = backbone_edges(cm, k_nearest=int(conn_p["backbone_k_nearest"]))
+        dens = corridor_density(fields, cm, areas, coarse.shape, edges,
+                                dispersal_cost=conn_p["dispersal_cost"],
+                                slack=conn_p["corridor_slack"])
+        score = per_stand_corridor_score(stands, dens, tr)
+
+        pos = score[score > 0]
+        thr = float(np.percentile(pos, 90)) if pos.size else np.inf
+        top = (score >= thr) & (score > 0)
+        score_sum += score
+        top_decile_runs += top
+        summary.append({
+            "run": run, "PC": round(pc, 6),
+            "dispersal_cost": round(conn_p["dispersal_cost"], 1),
+            "weights": {k: round(v, 3) for k, v in res_p["weights"].items()},
+            "top_decile_threshold": round(thr, 2),
+            "n_top_decile_stands": int(top.sum()),
+        })
+
+    frac = cfg_sens["robust_top_decile_frac"]
+    out = gpd.GeoDataFrame({
+        "mean_score": score_sum / n_runs,
+        "top_decile_runs": top_decile_runs,
+        "robust": top_decile_runs >= frac * n_runs,
+        "geometry": stands.geometry.values,
+    }, crs=stands.crs)
+    if "standid" in stands.columns:
+        out.insert(0, "standid", stands["standid"].values)
+    return out, summary

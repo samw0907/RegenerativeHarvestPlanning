@@ -165,10 +165,37 @@ accumulation, config `module_f_connectivity.connectivity`:
   Written to `data/interim/f/stand_connectivity_scores.gpkg` (plus
   `patches.gpkg` with dPC, `corridor_density.tif`).
 
-Next: F3b - the sensitivity sweep. Re-run F3a across `resistance_sensitivity_runs`
-(20) perturbations of the resistance weights and land-cover values, and report
-the stands that stay in the top decile across (most of) them - the robust set,
-which is the actual deliverable.
+### F3b - sensitivity sweep and the robust set (done, 2026-09-06)
+
+`perturb_resistance_cfg` + `sensitivity_sweep` in `src/f_connectivity.py`.
+`_coarsen` was split so the sweep can coarsen an in-memory resistance array
+(`_coarsen_array`) without a raster round-trip per run.
+
+Each of the **20 runs** (`resistance_sensitivity_runs`, seeded) perturbs the
+*ecological* assumptions and leaves the numerical settings fixed: every
+resistance weight `*= 1 + U(-0.4, 0.4)` then renormalised (draws spanned age
+0.20-0.43, structure 0.13-0.37, species 0.15-0.30, land cover 0.16-0.39); every
+land-cover category resistance `*= 1 + U(-0.3, 0.3)` clipped to [0.02, 1];
+`dispersal_cost *= 1 + U(-0.5, 0.5)` (4,600-12,000). The patch set is fixed -
+the F1 nodes do not depend on the resistance model. Each run recomputes the
+cost surface, the 786x786 least-cost matrix, the backbone corridors and the
+per-stand corridor score, and records which stands land in that run's top
+decile (~4,400 stands per run).
+
+**The connectivity index is assumption-sensitive; the ranking is not.**
+Probability of Connectivity ranged **0.196 to 0.414** across the 20 runs
+(median 0.363) - a ~2x swing, exactly the reason the plan requires this sweep.
+But the per-stand `top_decile_runs` histogram is sharply bimodal: **162,212
+stands never top-decile, ~65-250 stands each appearing in 1-19 runs, then 466
+in 19 runs and 3,029 in all 20.** A stand is almost always high-priority or
+almost never - the ordering barely moves when the resistance model does.
+
+**Robust set: 3,783 stands, 8,546 ha** (top-decile in >= 80% of runs -
+`robust_top_decile_frac`). That is ~85% of any single run's top decile, so the
+baseline F3a ranking was already close to the robust one. Written to
+`data/interim/f/stand_connectivity_robust.gpkg` (`mean_score`,
+`top_decile_runs`, `robust`); per-run parameters and PC in
+`sensitivity_runs.json`.
 
 ---
 
@@ -177,11 +204,15 @@ which is the actual deliverable.
 - **The protected-area network here is anchored by a few large Natura sites**
   (two patches carry ~70% of the connectivity by dPC); the ~2,100 small §10
   habitats are stepping stones that matter collectively, not individually.
-- **A per-stand connectivity-priority score** ranks where a Plus retention
-  measure (lowering a stand's resistance) would most help link the network -
-  concentrated along the least-cost backbone between the anchor patches. The
-  robust version of this ranking (F3b) is the deliverable, presented as
-  exploratory prioritisation, not a recommendation.
+- **The robust connectivity-priority set is 3,783 stands (8,546 ha)** - the
+  stands that rank in the top decile for "where a Plus retention measure would
+  most help link the network" across 20 perturbations of the resistance model.
+  They sit along the least-cost backbone between the anchor patches.
+- **The Probability of Connectivity index itself moves ~2x with the
+  assumptions (0.20-0.41)** and is not reported as a headline number; the
+  robust *ranking* is what survives the sweep, and that is what the deliverable
+  is - presented as exploratory prioritisation, not a recommendation. This is
+  the least certain of the six modules and the README will say so.
 
 ---
 
@@ -194,3 +225,11 @@ which is the actual deliverable.
 - "old stand" is a single `meanage >= 120 yr` cut with no structural-richness
   refinement yet (basal area, deadwood, multi-storey) - the plan's "old **or
   structurally rich**" is only half-implemented at F1.
+- The sweep perturbs the resistance weights, land-cover values and dispersal
+  cost but not the structural choices - node sources, the 200 m patch merge,
+  the 128 m grid, the backbone-k and corridor-slack. Those are fixed; a fuller
+  treatment would vary them too.
+- The 20-run sweep took ~30-40 min of compute (a laptop-sleep stretched the
+  wall clock to ~3 h). `patch_least_cost` (786 MCP accumulations) dominates;
+  raising `patch_min_area_ha` or `coarsen_factor` is the lever if the sweep
+  needs to be cheaper.

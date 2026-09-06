@@ -217,6 +217,14 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
             for key in ("coarsen_factor", "patch_merge_buffer_m", "patch_min_area_ha",
                         "dispersal_cost", "backbone_k_nearest", "corridor_slack"):
                 _num(problems, conn, key, 0, None, "module_f_connectivity.connectivity")
+        sens = f.get("sensitivity")
+        if not isinstance(sens, dict):
+            problems.append("module_f_connectivity.sensitivity: expected a block")
+        else:
+            for key in ("weight_perturbation", "landcover_perturbation",
+                        "dispersal_perturbation", "seed"):
+                _num(problems, sens, key, 0, None, "module_f_connectivity.sensitivity")
+            _num(problems, sens, "robust_top_decile_frac", 0, 1, "module_f_connectivity.sensitivity")
         _num(problems, f, "old_stand_age_min_years", 0, None, "module_f_connectivity")
         _num(problems, f, "resistance_sensitivity_runs", 1, None, "module_f_connectivity")
 

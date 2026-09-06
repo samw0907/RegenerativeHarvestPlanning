@@ -171,3 +171,9 @@ module_f_connectivity:
     dispersal_cost: 8000.0            # edge weight p_ij = exp(-cost_ij / dispersal_cost)
     backbone_k_nearest: 3             # corridors accumulated only for each patch's k lowest-cost neighbours
     corridor_slack: 0.15             # a cell is "in the corridor" if cost_i + cost_j <= min * (1 + slack)
+  sensitivity:                        # F3b sweep - perturbs the resistance-model assumptions, not the numerical resolution
+    weight_perturbation: 0.40         # each resistance weight *= 1 + U(-x, x), then renormalised to sum 1
+    landcover_perturbation: 0.30      # each land-cover resistance *= 1 + U(-x, x), clipped to [0.02, 1]
+    dispersal_perturbation: 0.50      # dispersal_cost *= 1 + U(-x, x)
+    robust_top_decile_frac: 0.80      # a stand is "robust" if it is top-decile in >= this fraction of runs
+    seed: 0
