@@ -87,11 +87,45 @@ Next: F2 - the resistance surface (stand age, canopy structure, species
 composition, land cover), then least-cost connectivity and the sensitivity
 sweep.
 
+### F2 - resistance (movement-cost) surface (done, 2026-09-06)
+
+`f_connectivity.resistance_surface`: a 16 m surface (matching the Module E
+channel-network / RUSLE grid) built from four terms, each normalised to [0,1]
+(0 = best habitat, 1 = worst), combined by config weights:
+
+| term | source | formula | weight |
+|---|---|---|---|
+| age | Metsakeskus stand `meanage` | 1 - min(age / 120, 1) | 0.30 |
+| structure | Metsakeskus stand `basalarea` | 1 - min(BA / 25, 1) | 0.25 |
+| species | Metsakeskus stand `proportionother` (deciduous share) | 1 - min(share / 0.5, 1) | 0.20 |
+| land cover | SYKE CLC2018 category (config) | lookup: forest 0.10 ... water 1.00 | 0.25 |
+
+No canopy-cover field in the stand data, so basal area stands in as the
+structure proxy (flagged). Where a stand attribute is missing (off stand land,
+or a null value) that term falls back to the land-cover term, so non-forest
+land is scored on land cover alone. The blended [0,1] surface is rescaled to
+[1, 100]; water cells are then set to 1000 (a near-absolute barrier). Every
+constant is in `config/pipeline.yaml` `module_f_connectivity.resistance` - this
+is exactly the surface F3 will sweep. The CLC-value -> category map
+(`_CLC_GROUPS`) is a fixed property of the SYKE scheme and lives in code, not
+config. Unit tested (term blending, water barrier, off-stand land-cover
+fallback).
+
+Baseline surface for the AOI (`data/interim/f/resistance_baseline.tif`):
+non-water resistance p10 27, median 43, mean 47, p90 80, max 98; water 16.5% of
+cells. The median ~43 is the typical managed middle-aged conifer stand
+(meanage ~47, BA ~19, deciduous ~0.14); low-resistance cells are older / more
+deciduous forest, high-resistance cells are clearcuts, young stands and fields.
+
+Next: F3 - least-cost connectivity between the F1 nodes across this surface,
+graph importance measures, and the sensitivity sweep that produces the robust
+set.
+
 ---
 
 ## 4. Results and what they mean
 
-(F1 only so far - see the node table above)
+(F1 nodes + F2 baseline resistance so far - see the tables above)
 
 ---
 

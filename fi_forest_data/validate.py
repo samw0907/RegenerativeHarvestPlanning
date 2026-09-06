@@ -193,6 +193,23 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
         ns = f.get("node_sources")
         if not isinstance(ns, list) or not ns or not set(ns) <= _NODE_SOURCES:
             problems.append(f"module_f_connectivity.node_sources: expected a subset of {sorted(_NODE_SOURCES)}")
+        res = f.get("resistance")
+        if not isinstance(res, dict):
+            problems.append("module_f_connectivity.resistance: expected a block")
+        else:
+            for key in ("grid_resolution_m", "scale_min", "scale_max", "water_resistance",
+                        "age_cap_years", "basal_area_cap_m2_ha", "deciduous_share_ref"):
+                _num(problems, res, key, 0, None, "module_f_connectivity.resistance")
+            w = res.get("weights")
+            if not isinstance(w, dict) or set(w) != {"age", "structure", "species", "landcover"} \
+                    or abs(sum(w.values()) - 1.0) > 1e-6:
+                problems.append("module_f_connectivity.resistance.weights: expected age/structure/"
+                                "species/landcover summing to 1")
+            lc = res.get("landcover_resistance")
+            if not isinstance(lc, dict) or not lc or not all(
+                    isinstance(v, (int, float)) and 0 <= v <= 1 for v in lc.values()):
+                problems.append("module_f_connectivity.resistance.landcover_resistance: "
+                                "expected {category: value in 0..1}")
         _num(problems, f, "old_stand_age_min_years", 0, None, "module_f_connectivity")
         _num(problems, f, "resistance_sensitivity_runs", 1, None, "module_f_connectivity")
 

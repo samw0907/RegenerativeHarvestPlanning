@@ -146,3 +146,21 @@ module_f_connectivity:
   node_sources: [protected_areas, habitat_s10, ymparistotuki, old_stands]
   old_stand_age_min_years: 120
   resistance_sensitivity_runs: 20     # sweep width for the "robust set" honesty requirement
+  resistance:                          # movement-cost surface, all terms normalised to [0,1] (0 = best habitat)
+    grid_resolution_m: 16
+    scale_min: 1.0                     # final surface rescaled to [scale_min, scale_max]
+    scale_max: 100.0
+    water_resistance: 1000.0           # near-absolute barrier
+    age_cap_years: 120                 # stand age at/above which the age term is 0 (best)
+    basal_area_cap_m2_ha: 25.0         # basal area at/above which the structure term is 0
+    deciduous_share_ref: 0.5           # proportionother at/above which the species term is 0
+    weights: {age: 0.30, structure: 0.25, species: 0.20, landcover: 0.25}
+    landcover_resistance:              # [0,1] by CLC category (value->category map is fixed in f_connectivity._CLC_GROUPS)
+      forest: 0.10
+      transitional: 0.50              # clearcut / young regen
+      open_veg: 0.55                  # grassland, moor, heath
+      mire: 0.40
+      agriculture: 0.80
+      bare: 0.70
+      built: 0.90
+      water: 1.00
