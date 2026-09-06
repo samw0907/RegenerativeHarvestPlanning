@@ -531,10 +531,53 @@ similarly sub-1 t/ha/yr with clearcut / road / ditch-bank hotspots at a few
 t/ha/yr, so the shape is plausible. Written to
 `data/interim/e/A_ours_catchment.tif`.
 
-Next, and the last RUSLE step: fetch Metsakeskus's `RUSLE-eroosiomalli` via WCS
-(`metsakeskus.fetch_raster`, still a stub) and compare against A on the
-stand-covered cells - spatial correlation, bias, and the honesty note that both
-sides share the NLS 2 m DEM.
+#### E5e - benchmark against Metsakeskus's RUSLE-eroosiomalli (done, 2026-09-06)
+
+`metsakeskus.fetch_raster` implemented: a whole-AOI WCS 2.0.1 GetCoverage times
+out (504 at ~75 s), so it tiles the bbox into 3 km tiles, fetches each
+(~5 s), and mosaics. The catchment (35 tiles) took 156 s, cached.
+`rusle_benchmark` in `src/e_plus_site_planning.py` resamples the Metsakeskus
+grid onto ours and compares on the ~18.5 M stand-covered cells where both are
+positive.
+
+| compared to Metsakeskus RUSLE | Spearman r | Pearson r (log) | median ratio MK / x |
+|---|---|---|---|
+| our full A (= R K LS C) | 0.66 | 0.24 | ~8,200 |
+| our LS factor alone | **0.82** | **0.79** | ~105 |
+| our K factor alone | 0.13 | 0.10 | ~1,940 |
+| our C factor alone | 0.02 | 0.03 | ~25,000 |
+
+**What this says.** Metsakeskus's `RUSLE-eroosiomalli` is, empirically, a
+**terrain-driven erosion-susceptibility surface dominated by the slope-length
+(LS) factor**. It tracks our LS strongly (rank r 0.82, log r 0.79) and carries
+essentially no cover-management signal (C rank r 0.02) and only a weak soil
+signal (K rank r 0.13). Our full A - which multiplies in C, so intact forest
+(C ~ 0.0015) is pushed far below clearcut / arable (C 0.10-0.22) - therefore
+correlates *less* with the Metsakeskus product (0.66) than our bare LS does.
+Adding the soil and cover terms that a complete RUSLE needs moves us away from
+their product, not toward it.
+
+This is the pre-committed Project 1 lesson made concrete twice over: (1) our LS
+and their product both come off the same NLS 2 m DEM, so the 0.82 terrain
+agreement is *consistency, not independent validation*; and (2) the comparison
+mostly measures a modelling choice we made and they did not (the C term), not
+whether either surface is "right".
+
+Absolute scale is not resolved: the Metsakeskus values run ~100x our LS in the
+median, with an unfilled `W.m-2.Sr-1` units tag in the WCS metadata (a GeoServer
+placeholder) and no published unit statement - most likely a different unit
+(kg/ha rather than t/ha) and/or an uncapped LS near channels (their max on a
+3 km tile was ~5,800 vs our capped ~60). Since R is a scalar and the benchmark
+is about spatial pattern, this does not undermine the LS-agreement finding.
+
+**Consequence for Module E's use of RUSLE.** The plan's output is "cross-
+reference RUSLE to flag where buffers matter most". Metsakeskus's product is a
+valid *terrain erosion-risk* flag for that (which is what the water-protection
+overlay needs), and can be consumed at AOI scale. Our C-modulated A additionally
+distinguishes where a *new* clearcut would raise erosion risk near a stream -
+arguably the more useful lens for harvest planning - but only exists at the
+2 m catchment scale. The buffer cross-reference (E6, next) will use the
+Metsakeskus product at the channel-network scale.
 
 ---
 

@@ -153,7 +153,73 @@ def fetch_layer(
     return gdf
 
 
-def fetch_raster(layer_key: str, aoi, version: str) -> str:
-    """Path to a COG for a Metsakeskus WCS raster layer. Built when first needed
-    (CHM download for Module A; korjuukelpoisuus / flow products for Project 2)."""
-    raise NotImplementedError("Metsakeskus raster fetch is implemented when a module first needs it")
+def fetch_raster(coverage: str, aoi, *, cache_dir: str | Path = "data/raw",
+                 tile_km: float = 3.0, force: bool = False) -> str:
+    """A Metsakeskus WCS 2.0.1 coverage for the AOI bbox, as one local GeoTIFF.
+
+    `coverage` is the WCS layer name (e.g. "RUSLE-eroosiomalli"); the coverage
+    id is `v1__<coverage>`. A whole-AOI GetCoverage times out on the server
+    (504), so the bbox is split into tile_km x tile_km tiles fetched
+    individually and mosaicked. EPSG:3067 throughout.
+    """
+    import math
+
+    import rasterio
+    from rasterio.merge import merge
+
+    cache_dir = Path(cache_dir)
+    out = cache_dir / "metsakeskus" / f"{coverage}__{aoi.name}.tif"
+    if out.exists() and not force:
+        return str(out)
+
+    base = f"{BASE}/v1/{coverage}/wcs"
+    minx, miny, maxx, maxy = aoi.bbox_3067
+    step = tile_km * 1000.0
+    nx = max(1, math.ceil((maxx - minx) / step))
+    ny = max(1, math.ceil((maxy - miny) / step))
+
+    tile_dir = cache_dir / "metsakeskus" / f"_{coverage}_tiles_{aoi.name}"
+    tile_dir.mkdir(parents=True, exist_ok=True)
+    session = requests.Session()
+    session.headers.update({"User-Agent": _UA})
+    tile_paths = []
+    try:
+        for i in range(nx):
+            for j in range(ny):
+                tminx, tmaxx = minx + i * step, min(minx + (i + 1) * step, maxx)
+                tminy, tmaxy = miny + j * step, min(miny + (j + 1) * step, maxy)
+                tpath = tile_dir / f"tile_{i}_{j}.tif"
+                if not tpath.exists() or force:
+                    params = {
+                        "service": "WCS", "version": "2.0.1", "request": "GetCoverage",
+                        "coverageId": f"v1__{coverage}", "format": "image/tiff",
+                        "subset": [f"E({tminx},{tmaxx})", f"N({tminy},{tmaxy})"],
+                    }
+                    resp = session.get(base, params=params, timeout=_TIMEOUT)
+                    resp.raise_for_status()
+                    if resp.content[:2] not in (b"II", b"MM"):
+                        raise RuntimeError(
+                            f"WCS {coverage} tile {i},{j} did not return a TIFF: "
+                            f"{resp.content[:200]!r}")
+                    tpath.write_bytes(resp.content)
+                tile_paths.append(tpath)
+    finally:
+        session.close()
+
+    srcs = [rasterio.open(p) for p in tile_paths]
+    mosaic, transform = merge(srcs)
+    profile = dict(srcs[0].profile, height=mosaic.shape[1], width=mosaic.shape[2],
+                   transform=transform, driver="GTiff")
+    for s in srcs:
+        s.close()
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with rasterio.open(out, "w", **profile) as dst:
+        dst.write(mosaic)
+    out.with_suffix(".meta.json").write_text(json.dumps({
+        "source": base, "coverage_id": f"v1__{coverage}", "wcs_version": "2.0.1",
+        "aoi": aoi.name, "aoi_bbox_3067": [minx, miny, maxx, maxy],
+        "n_tiles": len(tile_paths), "tile_km": tile_km,
+        "shape": [int(x) for x in mosaic.shape[1:]],
+        "fetch_date": date.today().isoformat(),
+    }, indent=2), encoding="utf-8")
+    return str(out)

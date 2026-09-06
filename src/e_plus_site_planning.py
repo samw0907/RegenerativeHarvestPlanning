@@ -543,3 +543,65 @@ def assemble_rusle(
     a = float(r_factor) * float(p_factor) * (
         np.asarray(k, "float64") * np.asarray(ls, "float64") * np.asarray(c, "float64"))
     return a.astype("float32")
+
+
+def _resample_onto(src_path, dst_transform, dst_crs, dst_shape):
+    import rasterio
+    from rasterio.warp import Resampling, reproject
+
+    with rasterio.open(src_path) as src:
+        out = np.zeros(dst_shape, dtype="float64")
+        reproject(src.read(1).astype("float64"), out,
+                  src_transform=src.transform, src_crs=src.crs,
+                  dst_transform=dst_transform, dst_crs=dst_crs,
+                  src_nodata=src.nodata, dst_nodata=np.nan,
+                  resampling=Resampling.average)
+    return out
+
+
+def rusle_benchmark(
+    our_a_path: str | Path,
+    mk_rusle_path: str | Path,
+    stand_coverage_path: str | Path,
+    *,
+    also_compare: dict | None = None,
+) -> dict:
+    """Compare our RUSLE `A` against Metsakeskus's `RUSLE-eroosiomalli` on the
+    cells where both are defined and a stand polygon exists (off stand land our
+    K, hence A, is a flat default). Metsakeskus's grid is resampled onto ours.
+
+    Reports Spearman (rank) and log-space Pearson correlation and the median
+    value ratio. `also_compare` maps label -> raster path (e.g. {"LS": path})
+    to run the same comparison for a single factor - the route by which E5e
+    found the Metsakeskus product tracks LS and carries no C signal.
+
+    Both sides derive from the same NLS 2 m DEM, so terrain agreement is
+    expected and is not independent validation (Project 1 lesson)."""
+    import rasterio
+    from scipy.stats import pearsonr, spearmanr
+
+    with rasterio.open(our_a_path) as a_src:
+        a = a_src.read(1).astype("float64")
+        transform, crs, shape = a_src.transform, a_src.crs, (a_src.height, a_src.width)
+    with rasterio.open(stand_coverage_path) as c_src:
+        cover = c_src.read(1).astype(bool)
+
+    mk = _resample_onto(mk_rusle_path, transform, crs, shape)
+
+    def _stats(x, label):
+        m = cover & np.isfinite(x) & np.isfinite(mk) & (x > 0) & (mk > 0)
+        n = int(m.sum())
+        if n < 100:
+            return {"label": label, "n": n}
+        xs, ms = x[m], mk[m]
+        return {
+            "label": label, "n": n,
+            "spearman_r": round(float(spearmanr(xs, ms).correlation), 3),
+            "pearson_log_r": round(float(pearsonr(np.log1p(xs), np.log1p(ms))[0]), 3),
+            "median_ratio_mk_over_x": round(float(np.median(ms / np.maximum(xs, 1e-9))), 1),
+        }
+
+    out = {"our_A": _stats(a, "our_A")}
+    for label, path in (also_compare or {}).items():
+        out[label] = _stats(_resample_onto(path, transform, crs, shape), label)
+    return out

@@ -339,3 +339,21 @@ def test_assemble_rusle_is_elementwise_product():
     assert a[0, 0] == pytest.approx(300.0 * 0.02 * 1.0 * 0.1)
     assert a[1, 0] == pytest.approx(0.0)          # LS 0 -> A 0
     assert a[0, 1] == pytest.approx(300.0 * 0.04 * 2.0 * 0.0015)
+
+
+def test_rusle_benchmark_correlations_on_synthetic_rasters(tmp_path):
+    from src.e_plus_site_planning import rusle_benchmark
+
+    rng = np.random.default_rng(0)
+    base = rng.uniform(0.01, 5.0, (40, 40))
+    ours = tmp_path / "ours.tif"
+    mk = tmp_path / "mk.tif"
+    cover = tmp_path / "cover.tif"
+    _write_tif(ours, base, res=10.0)
+    _write_tif(mk, base * 120.0 + rng.normal(0, 1.0, base.shape), res=10.0)  # scaled + noise -> high corr
+    _write_tif(cover, np.ones_like(base), res=10.0)
+
+    out = rusle_benchmark(ours, mk, cover)
+    assert out["our_A"]["n"] >= 1590   # a few edge cells may drop on resample
+    assert out["our_A"]["spearman_r"] > 0.95
+    assert 80 < out["our_A"]["median_ratio_mk_over_x"] < 160
