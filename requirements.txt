@@ -24,6 +24,7 @@ pysheds
 
 # Graph analysis (Module F: least-cost paths, connectivity measures)
 networkx
+scikit-image
 
 # Statistics. scikit-learn is used for NearestNeighbors as a k-NN utility by
 # default if ever needed; wider use as an ML framework is a design decision to

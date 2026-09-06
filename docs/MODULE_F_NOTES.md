@@ -121,11 +121,67 @@ Next: F3 - least-cost connectivity between the F1 nodes across this surface,
 graph importance measures, and the sensitivity sweep that produces the robust
 set.
 
+### F3a - least-cost connectivity, patch importance, per-stand score (baseline, done 2026-09-06)
+
+All in `src/f_connectivity.py`, `scikit-image` `MCP_Geometric` for least-cost
+accumulation, config `module_f_connectivity.connectivity`:
+
+- `_coarsen` - the 16 m resistance surface averaged to **128 m** for the
+  least-cost work (a landscape-connectivity computation does not need 16 m, and
+  it makes the sensitivity sweep tractable); cells whose coarse average clears
+  half the water value are snapped back to the barrier so lakes stay
+  impassable.
+- `build_patches` - the F1 nodes buffered out 200 m, unioned, buffered back and
+  exploded, keeping patches >= 0.5 ha: **786 patches** (median 1.9 ha, max
+  2,138 ha - the big Natura sites). The 200 m merge does not consolidate the
+  §10 habitats much; they really are scattered further apart than that.
+- `patch_least_cost` - one MCP accumulation per patch (**41 s** for 786
+  patches at 128 m), giving an 786x786 cost-distance matrix. 179,101 of
+  308,505 patch pairs are mutually reachable - the rest are separated by lakes,
+  realistic for this landscape.
+- `patch_dpc` - Probability of Connectivity (Saura & Pascual-Hortal 2007) and
+  each patch's **dPC** (% drop in PC if that patch were removed),
+  `p_ij = exp(-cost_ij / 8000)`.
+- `backbone_edges` + `corridor_density` - corridors accumulated only for the
+  connectivity **backbone** (each patch to its 3 lowest-cost neighbours, 1,174
+  undirected edges), not every patch pair. Each corridor is the cells within
+  15% cost slack of the least-cost line, weighted by pair connectivity. (A
+  first attempt accumulated the top 25% of *all* pairs and blanketed 93% of the
+  landscape - useless as a discriminator; the backbone version covers 35%.)
+- `per_stand_corridor_score` - zonal mean of the corridor-density raster per
+  stand (one rasterisation + `scipy.ndimage.mean`), the per-stand
+  connectivity-priority score.
+
+**Baseline results:**
+
+- **PC = 0.305.** dPC is dominated by the two largest Natura patches: **36.3%
+  and 34.2%**, then 21.8%, 7.5%, 6.3%, tailing off. Removing either big anchor
+  roughly halves network connectivity. The ranking is stable to the coarsening
+  choice (a 64 m run gave 38.4 / 35.2 / 18.5 / 7.4) - the patch-importance
+  result is robust, the big protected sites carry the network and the many
+  small §10 habitats add little individually.
+- **Per-stand corridor score:** 42,005 of 168,026 stands score above zero
+  (25%); the top decile of those is the baseline connectivity-priority set.
+  Written to `data/interim/f/stand_connectivity_scores.gpkg` (plus
+  `patches.gpkg` with dPC, `corridor_density.tif`).
+
+Next: F3b - the sensitivity sweep. Re-run F3a across `resistance_sensitivity_runs`
+(20) perturbations of the resistance weights and land-cover values, and report
+the stands that stay in the top decile across (most of) them - the robust set,
+which is the actual deliverable.
+
 ---
 
 ## 4. Results and what they mean
 
-(F1 nodes + F2 baseline resistance so far - see the tables above)
+- **The protected-area network here is anchored by a few large Natura sites**
+  (two patches carry ~70% of the connectivity by dPC); the ~2,100 small §10
+  habitats are stepping stones that matter collectively, not individually.
+- **A per-stand connectivity-priority score** ranks where a Plus retention
+  measure (lowering a stand's resistance) would most help link the network -
+  concentrated along the least-cost backbone between the anchor patches. The
+  robust version of this ranking (F3b) is the deliverable, presented as
+  exploratory prioritisation, not a recommendation.
 
 ---
 

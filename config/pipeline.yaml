@@ -164,3 +164,10 @@ module_f_connectivity:
       bare: 0.70
       built: 0.90
       water: 1.00
+  connectivity:
+    coarsen_factor: 8                 # 16 m -> 128 m for the least-cost computation
+    patch_merge_buffer_m: 200         # union node polygons within this distance into one patch
+    patch_min_area_ha: 0.5
+    dispersal_cost: 8000.0            # edge weight p_ij = exp(-cost_ij / dispersal_cost)
+    backbone_k_nearest: 3             # corridors accumulated only for each patch's k lowest-cost neighbours
+    corridor_slack: 0.15             # a cell is "in the corridor" if cost_i + cost_j <= min * (1 + slack)

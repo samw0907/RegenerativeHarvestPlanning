@@ -104,3 +104,41 @@ def test_resistance_surface_off_stand_falls_back_to_landcover(tmp_path):
     r, _ = resistance_surface(empty, str(clc), str(grid), cfg_res)
     # all terms fall back to landcover (arable = 0.8) -> r01 = 0.8 -> r = 1 + 0.8*99
     assert np.allclose(r, 1.0 + 0.8 * 99.0, atol=1e-3)
+
+
+def test_f3_connectivity_pipeline_on_a_tiny_synthetic_landscape():
+    import numpy as np
+
+    from src.f_connectivity import (
+        backbone_edges, corridor_density, patch_dpc, patch_least_cost,
+        per_stand_corridor_score)
+    from rasterio.transform import from_origin
+
+    # 1 m grid, 20x20, uniform low resistance; three patches in a line
+    arr = np.ones((20, 20), dtype="float64")
+    transform = from_origin(0, 20, 1, 1)
+    patches = gpd.GeoDataFrame(
+        {"patch_id": [0, 1, 2], "area_ha": [1.0, 1.0, 1.0],
+         "geometry": [_poly(1), _poly(9), _poly(17)]}, crs="EPSG:3067")
+    # _poly makes a 1x1 square at y in [0,1]; nudge into the grid interior
+    patches["geometry"] = patches.geometry.translate(yoff=10)
+
+    cm, fields = patch_least_cost(patches, arr, transform)
+    assert cm.shape == (3, 3)
+    assert cm[0, 2] > cm[0, 1] > 0          # middle patch is closer than the far one
+    assert np.allclose(cm, cm.T)
+
+    dpc, pc = patch_dpc(cm, patches["area_ha"].to_numpy(), dispersal_cost=10.0)
+    assert pc > 0 and len(dpc) == 3
+    assert dpc[1] >= dpc[0] and dpc[1] >= dpc[2]   # the middle patch is the connector
+
+    edges = backbone_edges(cm, k_nearest=2)
+    assert (0, 1) in edges and (1, 2) in edges
+    dens = corridor_density(fields, cm, patches["area_ha"].to_numpy(), arr.shape,
+                            edges, dispersal_cost=10.0, slack=0.3)
+    assert dens.shape == arr.shape and dens.max() > 0
+
+    stands = gpd.GeoDataFrame(
+        geometry=gpd.GeoSeries([_poly(5)], crs="EPSG:3067").translate(yoff=10))
+    score = per_stand_corridor_score(stands, dens, transform)
+    assert score.shape == (1,) and score[0] >= 0

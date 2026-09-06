@@ -210,6 +210,13 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
                     isinstance(v, (int, float)) and 0 <= v <= 1 for v in lc.values()):
                 problems.append("module_f_connectivity.resistance.landcover_resistance: "
                                 "expected {category: value in 0..1}")
+        conn = f.get("connectivity")
+        if not isinstance(conn, dict):
+            problems.append("module_f_connectivity.connectivity: expected a block")
+        else:
+            for key in ("coarsen_factor", "patch_merge_buffer_m", "patch_min_area_ha",
+                        "dispersal_cost", "backbone_k_nearest", "corridor_slack"):
+                _num(problems, conn, key, 0, None, "module_f_connectivity.connectivity")
         _num(problems, f, "old_stand_age_min_years", 0, None, "module_f_connectivity")
         _num(problems, f, "resistance_sensitivity_runs", 1, None, "module_f_connectivity")
 
