@@ -398,6 +398,54 @@ one number.
 Unit tested with three stands at known 5 / 15 / 25 m gaps from one habitat
 polygon.
 
+### E5 - RUSLE erosion risk (in progress)
+
+DERIVE AND BENCHMARK: build `A = R * K * LS * C * P` on the D1 validation
+catchment (148 km², 2 m), compare against Metsakeskus's own WCS
+`RUSLE-eroosiomalli` product (2 m, t/ha/yr), quantify agreement, then consume
+the Metsakeskus product at AOI scale for the "where do buffers matter most"
+cross-reference. Same shape as D1's DTW. P = 1 (no support practices in
+forestry).
+
+**Honesty note, pre-committed from Project 1:** our LS and Metsakeskus's RUSLE
+both come off the same NLS 2 m DEM, so agreement on the terrain-driven part is
+expected, not independent validation - stated plainly in the benchmark writeup.
+
+**Factor method decisions (discussed one at a time, 2026-09-06):**
+- **R** (rainfall erosivity): a single published constant for central Finland
+  from Panagos et al. 2015 (*Rainfall erosivity in Europe*), not derived from
+  FMI data - proper R needs sub-hourly intensity we do not have, R is a scalar
+  that does not affect the spatial benchmark, and this is the source the
+  European RUSLE product uses.
+- **K** (soil erodibility): a config lookup from Metsakeskus `soiltype` code
+  groups (till / sorted fines / coarse sand / peat / organic) to K values from
+  Nordic RUSLE literature. Class-mean approximation, but it is the distinction
+  that dominates Finnish erodibility and it lets K shape the risk pattern.
+- **C** (cover-management): CORINE Land Cover, C per class from the Panagos 2015
+  land-cover method. Needs `syke.fetch_clc` built. Full-AOI surface; check for a
+  CLC2024 release (TASK 00 D4), else CLC2018.
+
+#### E5a - LS factor (done, 2026-09-06)
+
+`ls_factor` in `src/e_plus_site_planning.py`: Moore & Burch (1986)
+unit-stream-power form, `LS = (A_s / 22.13)**m * (sin theta / 0.0896)**n`, with
+`m = 0.4`, `n = 1.3` (config `module_e_plus.rusle`). A_s (specific catchment
+area, m) = flow-accumulation cells x cell size, capped at 100 m so near-channel
+cells do not diverge - LS is hillslope wash, not channel routing. Reuses the
+two rasters D1 already produced for the catchment (`slope_deg.tif`,
+`dinf_accum_cells.tif`); no new terrain processing. Unit tested against a
+hand-computed value and the flat-cell / nodata zero cases.
+
+Catchment result: LS median 0.13, mean 0.66, p95 3.1, p99 6.1, max 42, with
+54% of cells non-zero (the rest dead-flat or outside the polygon). Low values
+are expected - D1 already established this catchment is very flat (slope
+median 1.55 deg). Written to `data/interim/e/ls_factor_catchment.tif` for the
+assembly step.
+
+Next: K (soil-class lookup, rasterised from the catchment stand polygons), then
+C (`fetch_clc` + CLC reclass), then R (Panagos constant), then assemble A and
+benchmark against the Metsakeskus WCS product.
+
 ---
 
 ## 4. Results and what they mean

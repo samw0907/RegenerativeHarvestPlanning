@@ -393,3 +393,52 @@ def habitat_proximity(
             row[f"stand_area_ha_nearest_habtype_{t}"] = round(float(area_ha[m].sum()), 1)
         results.append(row)
     return results
+
+
+def ls_factor(
+    slope_deg_path: str | Path,
+    flow_accum_cells_path: str | Path,
+    *,
+    exponent_m: float = 0.4,
+    exponent_n: float = 1.3,
+    specific_area_cap_m: float = 100.0,
+) -> tuple[np.ndarray, dict]:
+    """RUSLE LS (slope-length x steepness) via the Moore & Burch (1986)
+    unit-stream-power form:
+
+        LS = (A_s / 22.13) ** m  *  (sin theta / 0.0896) ** n
+
+    A_s is the specific catchment area - upslope contributing area per unit
+    contour width, in metres - taken as (flow-accumulation cells x cell size).
+    It is capped at `specific_area_cap_m`: RUSLE LS describes hillslope wash,
+    not channel flow, and an uncapped A_s makes near-channel cells diverge.
+
+    Reads the two rasters D1 already produced for the catchment
+    (`slope_deg.tif`, `dinf_accum_cells.tif`); they must share one grid.
+    Returns (ls_float32_array, write_profile). LS is 0 on nodata cells."""
+    import rasterio
+
+    with rasterio.open(slope_deg_path) as s_src:
+        slope_deg = s_src.read(1).astype("float64")
+        s_nodata = s_src.nodata
+        profile = s_src.profile
+        cell = abs(s_src.transform.a)
+    with rasterio.open(flow_accum_cells_path) as a_src:
+        accum = a_src.read(1).astype("float64")
+        a_nodata = a_src.nodata
+
+    valid = np.ones(slope_deg.shape, dtype=bool)
+    if s_nodata is not None:
+        valid &= slope_deg != s_nodata
+    if a_nodata is not None:
+        valid &= accum != a_nodata
+
+    sin_theta = np.sin(np.deg2rad(np.clip(slope_deg, 0.0, None)))
+    a_s = np.minimum(np.clip(accum, 0.0, None) * cell, specific_area_cap_m)
+
+    with np.errstate(invalid="ignore", divide="ignore"):
+        ls_all = (a_s / 22.13) ** exponent_m * (sin_theta / 0.0896) ** exponent_n
+    ls = np.where(valid, np.nan_to_num(ls_all, nan=0.0, posinf=0.0, neginf=0.0), 0.0)
+
+    out_profile = dict(profile, dtype="float32", nodata=0.0, count=1)
+    return ls.astype("float32"), out_profile

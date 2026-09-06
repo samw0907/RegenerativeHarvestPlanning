@@ -213,3 +213,44 @@ def test_habitat_proximity_counts_stands_within_each_setback():
     assert out[20]["n_stands_within"] == 2 and out[20]["stand_area_ha_within"] == pytest.approx(3.0)
     assert out[30]["n_stands_within"] == 3 and out[30]["stand_area_ha_within"] == pytest.approx(7.0)
     assert out[30]["stand_area_ha_nearest_habtype_1"] == pytest.approx(7.0)
+
+
+def _write_tif(path, arr, res=10.0, nodata=-9999.0):
+    with rasterio.open(path, "w", driver="GTiff", crs="EPSG:3067",
+                       transform=from_origin(0, arr.shape[0] * res, res, res),
+                       width=arr.shape[1], height=arr.shape[0], count=1,
+                       dtype="float64", nodata=nodata) as dst:
+        dst.write(arr.astype("float64"), 1)
+
+
+def test_ls_factor_moore_burch_value_and_flat_zero(tmp_path):
+    from src.e_plus_site_planning import ls_factor
+
+    slope = np.full((4, 4), 5.0)
+    slope[0, 0] = 0.0                     # a flat cell -> LS 0
+    accum = np.full((4, 4), 50.0)         # 50 cells * 10 m = 500 m, capped to 100 m
+    sp, ap = tmp_path / "s.tif", tmp_path / "a.tif"
+    _write_tif(sp, slope)
+    _write_tif(ap, accum)
+
+    ls, prof = ls_factor(sp, ap, exponent_m=0.4, exponent_n=1.3, specific_area_cap_m=100.0)
+    assert prof["dtype"] == "float32"
+    assert ls[0, 0] == pytest.approx(0.0)
+    # (100/22.13)**0.4 * (sin 5deg / 0.0896)**1.3
+    expected = (100 / 22.13) ** 0.4 * (np.sin(np.deg2rad(5.0)) / 0.0896) ** 1.3
+    assert ls[1, 1] == pytest.approx(expected, rel=1e-4)
+
+
+def test_ls_factor_zeroes_nodata_cells(tmp_path):
+    from src.e_plus_site_planning import ls_factor
+
+    slope = np.full((3, 3), 10.0)
+    slope[2, 2] = -9999.0
+    accum = np.full((3, 3), 30.0)
+    sp, ap = tmp_path / "s.tif", tmp_path / "a.tif"
+    _write_tif(sp, slope)
+    _write_tif(ap, accum)
+
+    ls, _ = ls_factor(sp, ap)
+    assert ls[2, 2] == 0.0
+    assert ls[0, 0] > 0.0

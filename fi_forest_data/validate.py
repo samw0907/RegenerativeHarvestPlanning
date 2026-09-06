@@ -167,6 +167,15 @@ def validate_pipeline_config(cfg: dict, base_dir: Path | None = None) -> list[st
             if not isinstance(ds, list) or not ds or not all(isinstance(x, int) for x in ds):
                 problems.append("module_e_plus.ccf_peatland.drained_states: expected a non-empty list of integers")
         _num(problems, e, "channel_network_resolution_m", 0, None, "module_e_plus")
+        rusle = e.get("rusle")
+        if not isinstance(rusle, dict):
+            problems.append("module_e_plus.rusle: expected a block")
+        else:
+            if not isinstance(rusle.get("benchmark_layer"), str) or not rusle.get("benchmark_layer"):
+                problems.append("module_e_plus.rusle.benchmark_layer: expected a non-empty string")
+            _num(problems, rusle, "ls_exponent_m", 0, None, "module_e_plus.rusle")
+            _num(problems, rusle, "ls_exponent_n", 0, None, "module_e_plus.rusle")
+            _num(problems, rusle, "ls_specific_area_cap_m", 0, None, "module_e_plus.rusle")
 
     # --- module F: connectivity ---
     f = cfg.get("module_f_connectivity")
